@@ -11,6 +11,7 @@ import {
   CreditCard,
   Check,
   CheckCircle2,
+  XCircle,
   BarChart3,
   Shield,
   Lock,
@@ -24,13 +25,16 @@ import {
   Search,
   Phone,
   X,
+  BookOpen,
+  Save,
+  Clock,
 } from 'lucide-react';
-import { AttendanceCharts } from '@/components/AttendanceCharts';
 import {
   ProfileRow,
   GroupRow,
   NewsRow,
   AppNotificationRow,
+  StudioRuleSection,
 } from '@/types/database';
 
 export default function AdminDashboard() {
@@ -42,8 +46,9 @@ export default function AdminDashboard() {
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
 
-  const [activeSection, setActiveSection] = useState<'requests' | 'attendance' | 'students' | 'news' | 'notifications' | 'debt'>('requests');
+  const [activeSection, setActiveSection] = useState<'requests' | 'attendance' | 'students' | 'news' | 'notifications' | 'debt' | 'rules'>('requests');
   const [selectedGroupId, setSelectedGroupId] = useState<string>('all');
+  const [attendanceGroupId, setAttendanceGroupId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Группы
@@ -58,6 +63,9 @@ export default function AdminDashboard() {
   const [students, setStudents] = useState<ProfileRow[]>([]);
   const [news, setNews] = useState<NewsRow[]>([]);
   const [notifications, setNotifications] = useState<AppNotificationRow[]>([]);
+  const [rules, setRules] = useState<StudioRuleSection[]>([]);
+  const [rulesSavedSuccess, setRulesSavedSuccess] = useState('');
+  const [dbError, setDbError] = useState<string | null>(null);
 
   // Формы новостей
   const [newsTitle, setNewsTitle] = useState('');
@@ -76,40 +84,73 @@ export default function AdminDashboard() {
   const [editingStudent, setEditingStudent] = useState<ProfileRow | null>(null);
   const [studentToDelete, setStudentToDelete] = useState<ProfileRow | null>(null);
 
-  // Загрузка всех данных из Supabase
   const fetchData = async () => {
     try {
-      const [studentsRes, newsRes, notifsRes] = await Promise.all([
+      const [studentsRes, newsRes, notifsRes, rulesRes] = await Promise.all([
         supabase.from('profiles').select('*').order('created_at', { ascending: false }),
         supabase.from('news').select('*').order('created_at', { ascending: false }),
         supabase.from('notifications').select('*').order('created_at', { ascending: false }),
+        supabase.from('studio_rules').select('*').order('sort_order', { ascending: true }),
       ]);
+
+      if (studentsRes.error || newsRes.error || notifsRes.error) {
+        const err = studentsRes.error || newsRes.error || notifsRes.error;
+        setDbError(err?.message || 'Ошибка соединения с базой данных Supabase');
+      } else {
+        setDbError(null);
+      }
 
       if (studentsRes.data) {
         setStudents(studentsRes.data as ProfileRow[]);
       }
 
-      if (newsRes.data && newsRes.data.length > 0) {
+      if (newsRes.data) {
         setNews(newsRes.data as NewsRow[]);
-      } else {
-        setNews([
-          {
-            id: 'news-init-1',
-            title: 'Добро пожаловать в студию кавказских танцев ARVESTI',
-            content: 'Занятия проходят в ТРЦ «Арбат», Октябрьская ул., 17. Ждём вас на тренировках в чистой сменной обуви!',
-            date: new Date().toLocaleDateString('ru-RU'),
-            author: 'Линда Азизян',
-            category: 'announcement',
-            pinned: true,
-          },
-        ]);
       }
 
       if (notifsRes.data) {
         setNotifications(notifsRes.data as AppNotificationRow[]);
       }
-    } catch (err) {
-      console.error('Ошибка загрузки данных из Supabase:', err);
+
+      if (rulesRes.data && rulesRes.data.length > 0) {
+        setRules(rulesRes.data as StudioRuleSection[]);
+      } else {
+        setRules([
+          {
+            id: 1,
+            title: 'Общие правила студии ARVESTI',
+            items: [
+              'Вход в танцевальный зал строго в сменной чистой обуви (балетки, чешки или носочки).',
+              'Приходить на занятие необходимо за 10–15 минут до начала для спокойной подготовки и переодевания.',
+              'Во время занятия телефоны должны быть переведены в бесшумный режим.',
+              'Бережно относиться к имуществу зала, зеркалам и реквизиту студии.',
+            ],
+            sort_order: 1,
+          },
+          {
+            id: 2,
+            title: 'Посещение и пропуски занятий',
+            items: [
+              'При невозможности посетить тренировку необходимо предупредить педагога заранее через личный кабинет (кнопка «Не смогу»).',
+              'Пропущенные по уважительной причине занятия можно отработать с параллельной группой в течение текущего месяца.',
+              'В случае отмены занятия педагогом, студия назначает дату полноценной отработки.',
+            ],
+            sort_order: 2,
+          },
+          {
+            id: 3,
+            title: 'Оплата абонементов и разовые визиты',
+            items: [
+              'Оплата абонемента производится строго с 27 числа текущего месяца до конца месяца на следующий расчётный период.',
+              'В случае задержки оплаты место в группе не гарантируется.',
+              'Разовые посещения осуществляются только по предварительной заявке при наличии свободных мест в зале.',
+            ],
+            sort_order: 3,
+          },
+        ]);
+      }
+    } catch (err: any) {
+      setDbError(err?.message || 'Не удалось связаться с базой данных Supabase');
     } finally {
       setLoading(false);
     }
@@ -186,7 +227,7 @@ export default function AdminDashboard() {
     setEditingStudent(null);
   };
 
-  // СОЗДАНИЕ И СОХРАНЕНИЕ НОВОСТИ В SUPABASE
+  // СОЗДАНИЕ НОВОСТИ
   const handleAddNews = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newsTitle.trim() || !newsContent.trim()) return;
@@ -201,29 +242,29 @@ export default function AdminDashboard() {
       date: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
     };
 
+    const { error } = await supabase.from('news').insert([newPost]);
+    if (error) {
+      alert('Ошибка сохранения в базу: ' + error.message);
+      return;
+    }
+
     setNews([newPost, ...news]);
     setNewsTitle('');
     setNewsContent('');
     setNewsPinned(false);
-
-    try {
-      await supabase.from('news').insert([newPost]);
-    } catch (err) {
-      console.error('Ошибка сохранения новости в Supabase:', err);
-    }
   };
 
-  // УДАЛЕНИЕ НОВОСТИ ИЗ SUPABASE
+  // УДАЛЕНИЕ НОВОСТИ
   const handleDeleteNews = async (id: string) => {
-    setNews((prev) => prev.filter((n) => n.id !== id));
-    try {
-      await supabase.from('news').delete().eq('id', id);
-    } catch (err) {
-      console.error('Ошибка удаления новости:', err);
+    const { error } = await supabase.from('news').delete().eq('id', id);
+    if (error) {
+      alert('Ошибка удаления из базы: ' + error.message);
+      return;
     }
+    setNews((prev) => prev.filter((n) => n.id !== id));
   };
 
-  // СОЗДАНИЕ И СОХРАНЕНИЕ УВЕДОМЛЕНИЯ В SUPABASE
+  // ОТПРАВКА УВЕДОМЛЕНИЯ
   const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!notifTitle.trim() || !notifMessage.trim()) return;
@@ -250,12 +291,58 @@ export default function AdminDashboard() {
     }
   };
 
-  // УДАЛЕНИЕ УВЕДОМЛЕНИЯ
   const handleDeleteNotification = async (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     try {
       await supabase.from('notifications').delete().eq('id', id);
     } catch {}
+  };
+
+  // СОХРАНЕНИЕ ПРАВИЛ В SUPABASE
+  const handleSaveRules = async () => {
+    try {
+      for (const r of rules) {
+        await supabase.from('studio_rules').upsert({
+          id: r.id,
+          title: r.title,
+          items: r.items,
+          sort_order: r.sort_order,
+        });
+      }
+      setRulesSavedSuccess('Правила студии успешно сохранены и обновлены для всех учениц!');
+      setTimeout(() => setRulesSavedSuccess(''), 4000);
+    } catch (err: any) {
+      alert('Ошибка сохранения правил в Supabase: ' + err.message);
+    }
+  };
+
+  const handleUpdateRuleItem = (sectionId: number, itemIdx: number, val: string) => {
+    setRules((prev) =>
+      prev.map((sec) => {
+        if (sec.id !== sectionId) return sec;
+        const copy = [...sec.items];
+        copy[itemIdx] = val;
+        return { ...sec, items: copy };
+      })
+    );
+  };
+
+  const handleAddRuleItem = (sectionId: number) => {
+    setRules((prev) =>
+      prev.map((sec) => {
+        if (sec.id !== sectionId) return sec;
+        return { ...sec, items: [...sec.items, 'Новый пункт правила...'] };
+      })
+    );
+  };
+
+  const handleDeleteRuleItem = (sectionId: number, itemIdx: number) => {
+    setRules((prev) =>
+      prev.map((sec) => {
+        if (sec.id !== sectionId) return sec;
+        return { ...sec, items: sec.items.filter((_, idx) => idx !== itemIdx) };
+      })
+    );
   };
 
   const pendingRequests = useMemo(() => students.filter((s) => s.status === 'pending'), [students]);
@@ -272,6 +359,25 @@ export default function AdminDashboard() {
     }
     return list;
   }, [activeStudents, selectedGroupId, searchQuery]);
+
+  // Ученицы для вкладки Посещаемость
+  const attendanceStudents = useMemo(() => {
+    if (attendanceGroupId === 'all') return activeStudents;
+    return activeStudents.filter((s) => s.group_id === attendanceGroupId);
+  }, [activeStudents, attendanceGroupId]);
+
+  const goingStudents = useMemo(
+    () => attendanceStudents.filter((s) => s.attendance_status === 'going' || s.notes?.includes('Будет на занятии')),
+    [attendanceStudents]
+  );
+  const notGoingStudents = useMemo(
+    () => attendanceStudents.filter((s) => s.attendance_status === 'not_going' || s.notes?.includes('Не сможет')),
+    [attendanceStudents]
+  );
+  const unconfirmedStudents = useMemo(
+    () => attendanceStudents.filter((s) => !goingStudents.includes(s) && !notGoingStudents.includes(s)),
+    [attendanceStudents, goingStudents, notGoingStudents]
+  );
 
   const debtors = useMemo(() => students.filter((s) => s.payment_status === 'overdue'), [students]);
 
@@ -338,10 +444,30 @@ export default function AdminDashboard() {
             <h1 className="text-2xl font-black text-white">Кабинет руководителя ARVESTI</h1>
           </div>
           <p className="text-xs text-neutral-400 mt-1">
-            Линда Азизян • Управление студией, ученицами, новостями и абонементами
+            Линда Азизян • Управление студией, отметками учениц, новостями и абонементами
           </p>
         </div>
       </div>
+
+      {dbError && (
+        <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 shrink-0 text-red-400" />
+            <div>
+              <p className="font-bold">База данных не отвечает: {dbError}</p>
+              <p className="text-[11px] text-neutral-400 mt-0.5">
+                Проверьте настройки ключей в файле <code className="text-white bg-neutral-900 px-1 py-0.5 rounded">lib/supabase/client.ts</code>.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => fetchData()}
+            className="py-1 px-3 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-semibold shrink-0 cursor-pointer"
+          >
+            Повторить связь
+          </button>
+        </div>
+      )}
 
       {/* Вкладки */}
       <div className="flex flex-wrap gap-2 p-1.5 rounded-2xl bg-neutral-900 border border-neutral-800 text-xs font-semibold">
@@ -363,6 +489,23 @@ export default function AdminDashboard() {
         </button>
 
         <button
+          onClick={() => setActiveSection('attendance')}
+          className={`py-2 px-3.5 rounded-xl font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+            activeSection === 'attendance'
+              ? 'bg-white text-black border-white shadow'
+              : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+          }`}
+        >
+          <CalendarCheck className="w-3.5 h-3.5" />
+          <span>Посещаемость (отметки)</span>
+          {goingStudents.length > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-600 text-white font-bold text-[10px]">
+              {goingStudents.length}
+            </span>
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveSection('students')}
           className={`py-2 px-3.5 rounded-xl font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
             activeSection === 'students'
@@ -372,6 +515,18 @@ export default function AdminDashboard() {
         >
           <Users className="w-3.5 h-3.5" />
           <span>Ученицы ({activeStudents.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSection('rules')}
+          className={`py-2 px-3.5 rounded-xl font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+            activeSection === 'rules'
+              ? 'bg-white text-black border-white shadow'
+              : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+          }`}
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          <span>Правила студии</span>
         </button>
 
         <button
@@ -399,18 +554,6 @@ export default function AdminDashboard() {
         </button>
 
         <button
-          onClick={() => setActiveSection('attendance')}
-          className={`py-2 px-3.5 rounded-xl font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
-            activeSection === 'attendance'
-              ? 'bg-white text-black border-white shadow'
-              : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
-          }`}
-        >
-          <BarChart3 className="w-3.5 h-3.5" />
-          <span>Посещаемость</span>
-        </button>
-
-        <button
           onClick={() => setActiveSection('debt')}
           className={`py-2 px-3.5 rounded-xl font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
             activeSection === 'debt'
@@ -423,7 +566,7 @@ export default function AdminDashboard() {
         </button>
       </div>
 
-      {/* 1. ЗАЯВКИ */}
+      {/* 1. ЗАЯВКИ НА РЕГИСТРАЦИЮ */}
       {activeSection === 'requests' && (
         <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
@@ -433,7 +576,7 @@ export default function AdminDashboard() {
                 <span>Новые заявки на регистрацию</span>
               </h2>
               <p className="text-xs text-neutral-400">
-                Заявки с телефонов учениц, сохранённые в Supabase
+                Заявки учениц, отправленные со смартфонов в базу Supabase
               </p>
             </div>
             <span className="text-xs font-mono text-neutral-300 font-bold">
@@ -492,7 +635,240 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 2. УЧЕНИЦЫ */}
+      {/* 2. ПОСЕЩАЕМОСТЬ: СПИСОК КТО НАЖАЛ «Я БУДУ» ИЛИ «НЕ СМОГУ» */}
+      {activeSection === 'attendance' && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-neutral-800">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <CalendarCheck className="w-5 h-5 text-white" />
+                  <span>Отметки учениц: кто будет на следующем занятии</span>
+                </h2>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Синхронизировано со смартфонами учениц через Supabase
+                </p>
+              </div>
+
+              <select
+                value={attendanceGroupId}
+                onChange={(e) => setAttendanceGroupId(e.target.value)}
+                className="bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-white cursor-pointer"
+              >
+                <option value="all">Все группы</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name} ({g.age_category})</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Счётчики */}
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+                <p className="text-3xl font-black text-emerald-400">{goingStudents.length}</p>
+                <p className="text-xs font-bold text-emerald-300 mt-1 flex items-center justify-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Будут на уроке</span>
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30">
+                <p className="text-3xl font-black text-red-400">{notGoingStudents.length}</p>
+                <p className="text-xs font-bold text-red-300 mt-1 flex items-center justify-center gap-1">
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>Не смогут</span>
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800">
+                <p className="text-3xl font-black text-neutral-400">{unconfirmedStudents.length}</p>
+                <p className="text-xs font-medium text-neutral-400 mt-1 flex items-center justify-center gap-1">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Не ответили</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Детальный список */}
+            <div className="space-y-2 pt-2">
+              <h3 className="text-xs font-bold text-neutral-300 uppercase tracking-wider">
+                Список учениц ({attendanceStudents.length})
+              </h3>
+
+              {attendanceStudents.length === 0 ? (
+                <div className="py-12 text-center text-xs text-neutral-500">
+                  В этой группе пока нет активных учениц.
+                </div>
+              ) : (
+                <div className="divide-y divide-neutral-800">
+                  {attendanceStudents.map((st) => {
+                    const isGoing = st.attendance_status === 'going' || st.notes?.includes('Будет на занятии');
+                    const isNotGoing = st.attendance_status === 'not_going' || st.notes?.includes('Не сможет');
+                    const grp = groups.find((g) => g.id === st.group_id);
+
+                    return (
+                      <div key={st.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${
+                            isGoing
+                              ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20'
+                              : isNotGoing
+                              ? 'bg-red-600 text-white shadow-md shadow-red-600/20'
+                              : 'bg-neutral-800 text-neutral-400'
+                          }`}>
+                            {isGoing ? <Check className="w-5 h-5 stroke-[3]" /> : isNotGoing ? <X className="w-5 h-5 stroke-[3]" /> : st.full_name.charAt(0)}
+                          </div>
+
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-white text-sm">{st.full_name}</span>
+                              <span className="text-neutral-400 font-mono text-[11px]">@{st.username}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300">
+                                {grp?.name || 'Группа'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-neutral-400 mt-0.5 flex items-center gap-2">
+                              <span>Тел: {st.phone}</span>
+                              {st.notes && (
+                                <span className="text-neutral-500">• {st.notes}</span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div>
+                          {isGoing ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-black text-xs">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                              <span>БУДЕТ НА ЗАНЯТИИ</span>
+                            </span>
+                          ) : isNotGoing ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-500/15 border border-red-500/40 text-red-300 font-black text-xs">
+                              <XCircle className="w-4 h-4 text-red-400" />
+                              <span>НЕ СМОЖЕТ ПРИЙТИ</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-400 font-semibold text-xs">
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>Ещё не ответила</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. РЕДАКТОР ПРАВИЛ СТУДИИ */}
+      {activeSection === 'rules' && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-800">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-white" />
+                  <span>Редактор правил студии ARVESTI</span>
+                </h2>
+                <p className="text-xs text-neutral-400">
+                  Все изменения сохраняются в Supabase и мгновенно обновляются на телефонах учениц
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveRules}
+                className="py-2 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-extrabold text-xs transition-colors flex items-center gap-2 cursor-pointer shadow"
+              >
+                <Save className="w-4 h-4" />
+                <span>Сохранить правила в базу</span>
+              </button>
+            </div>
+
+            {rulesSavedSuccess && (
+              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 shrink-0" />
+                <span>{rulesSavedSuccess}</span>
+              </div>
+            )}
+
+            <div className="space-y-6">
+              {rules.map((section) => (
+                <div key={section.id} className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider mb-1">
+                      Название раздела правил
+                    </label>
+                    <input
+                      type="text"
+                      value={section.title}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setRules((prev) =>
+                          prev.map((s) => (s.id === section.id ? { ...s, title: val } : s))
+                        );
+                      }}
+                      className="w-full bg-neutral-900 border border-neutral-800 rounded-xl py-2 px-3 text-sm text-white font-bold focus:outline-none focus:border-white"
+                    />
+                  </div>
+
+                  <div className="space-y-2 pt-1">
+                    <label className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                      Пункты правил раздела:
+                    </label>
+
+                    {section.items.map((item, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <span className="text-neutral-500 font-mono text-xs w-5 text-right">{idx + 1}.</span>
+                        <input
+                          type="text"
+                          value={item}
+                          onChange={(e) => handleUpdateRuleItem(section.id, idx, e.target.value)}
+                          className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRuleItem(section.id, idx)}
+                          className="p-2 rounded-lg text-neutral-500 hover:text-red-400 hover:bg-neutral-900 transition-colors"
+                          title="Удалить пункт"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={() => handleAddRuleItem(section.id)}
+                      className="mt-2 text-xs text-neutral-400 hover:text-white flex items-center gap-1.5 py-1.5 px-3 rounded-lg bg-neutral-900 border border-neutral-800 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Добавить пункт правила</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2 text-right">
+              <button
+                type="button"
+                onClick={handleSaveRules}
+                className="py-2.5 px-6 rounded-xl bg-white hover:bg-neutral-200 text-black font-extrabold text-xs transition-colors inline-flex items-center gap-2 cursor-pointer shadow"
+              >
+                <Save className="w-4 h-4" />
+                <span>Сохранить правила в базу</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. СПИСОК УЧЕНИЦ */}
       {activeSection === 'students' && (
         <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-800">
@@ -593,7 +969,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 3. НОВОСТИ С ПОСТОЯННОЙ ПАМЯТЬЮ В SUPABASE */}
+      {/* 5. НОВОСТИ */}
       {activeSection === 'news' && (
         <div className="space-y-6">
           <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-4">
@@ -701,7 +1077,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 4. УВЕДОМЛЕНИЯ */}
+      {/* 6. УВЕДОМЛЕНИЯ */}
       {activeSection === 'notifications' && (
         <div className="space-y-6">
           <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-4">
@@ -812,14 +1188,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 5. ПОСЕЩАЕМОСТЬ */}
-      {activeSection === 'attendance' && (
-        <div className="space-y-6">
-          <AttendanceCharts groups={groups} />
-        </div>
-      )}
-
-      {/* 6. ДОЛГИ */}
+      {/* 7. ДОЛГИ */}
       {activeSection === 'debt' && (
         <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-4">
           <h2 className="text-base font-bold text-white flex items-center gap-2">
