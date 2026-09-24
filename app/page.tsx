@@ -141,7 +141,7 @@ export default function HomePage() {
           return;
         }
 
-        if (student.status === 'rejected' || student.status === 'inactive') {
+        if (student.status !== 'active') {
           setErrorMsg('Заявка была отклонена или аккаунт деактивирован.');
           setLoading(false);
           return;
