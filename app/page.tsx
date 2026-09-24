@@ -22,7 +22,6 @@ export default function HomePage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Пароли руководителя
   const VALID_ADMIN_PASSWORDS = ['ArvestiAdmin2026!', 'admin123456'];
 
   const formatPhoneNumber = (val: string) => {
@@ -53,7 +52,7 @@ export default function HomePage() {
     setErrorMsg('');
     setSuccessMsg('');
 
-    // 1. Вход руководителя студии
+    // 1. Вход руководителя
     if (mode === 'admin') {
       const isPasswordValid = VALID_ADMIN_PASSWORDS.includes(password.trim());
       if (!isPasswordValid) {
@@ -80,58 +79,45 @@ export default function HomePage() {
       }
 
       try {
-        // Поиск в базе данных Supabase
-        let student: ProfileRow | null = null;
         const { data, error } = await supabase
           .from('profiles')
           .select('*')
           .eq('username', cleanLogin)
-          .single();
+          .maybeSingle();
 
-        if (data && !error) {
-          student = data as ProfileRow;
-        } else {
-          // Поиск в локальном хранилище (fallback)
-          const stored = localStorage.getItem('arvesti_students_db');
-          if (stored) {
-            const list: ProfileRow[] = JSON.parse(stored);
-            student = list.find((s) => s.username?.toLowerCase() === cleanLogin) || null;
-          }
-        }
+        let student = data as ProfileRow | null;
 
-        // Проверка пароля демо-учениц или зарегистрированных
         if (!student) {
-          // Если логин admin
           if (cleanLogin === 'admin' && VALID_ADMIN_PASSWORDS.includes(password)) {
             localStorage.setItem('arvesti_admin_authorized', 'true');
             router.push('/admin');
             return;
           }
-          setErrorMsg('Ученица с таким логином не найдена. Проверьте логин или зарегистрируйтесь.');
+          setErrorMsg('Ученица с таким логином не найдена. Проверьте логин или подайте заявку на регистрацию.');
           setLoading(false);
           return;
         }
 
         if (student.password && student.password !== password) {
-          setErrorMsg('Неверный пароль. Пожалуйста, попробуйте снова.');
+          setErrorMsg('Неверный пароль. Пожалуйста, проверьте введённые данные.');
           setLoading(false);
           return;
         }
 
-        // ПРОВЕРКА СТАТУСА: ожидает ли подтверждения администратора
+        // Проверка: одобрена ли заявка
         if (student.status === 'pending') {
-          setErrorMsg('Ваша заявка ожидает подтверждения руководителем студии. Дождитесь подтверждения.');
+          setErrorMsg('Ваша заявка ожидает подтверждения руководителем студии. Как только Линда Азизян подтвердит её, вы сможете войти.');
           setLoading(false);
           return;
         }
 
         if (student.status === 'rejected' || student.status === 'inactive') {
-          setErrorMsg('Ваша заявка была отклонена или аккаунт деактивирован.');
+          setErrorMsg('Заявка была отклонена или аккаунт деактивирован.');
           setLoading(false);
           return;
         }
 
-        // Успешный вход ученицы
+        // Вход успешен
         localStorage.setItem('arvesti_current_student', JSON.stringify(student));
         localStorage.removeItem('arvesti_admin_authorized');
         router.push('/student');
@@ -153,19 +139,19 @@ export default function HomePage() {
         return;
       }
       if (!cleanLogin || cleanLogin.length < 3) {
-        setErrorMsg('Логин должен содержать минимум 3 символа.');
+        setErrorMsg('Логин должен быть не короче 3 символов.');
         setLoading(false);
         return;
       }
       if (password.length < 4) {
-        setErrorMsg('Пароль должен содержать минимум 4 символа.');
+        setErrorMsg('Пароль должен быть не короче 4 символов.');
         setLoading(false);
         return;
       }
 
       try {
         const newStudentId = 'student-' + Date.now();
-        const newStudent: ProfileRow = {
+        const newStudent = {
           id: newStudentId,
           username: cleanLogin,
           password: password,
@@ -175,27 +161,33 @@ export default function HomePage() {
           group_id: selectedGroup,
           account_type: accountType,
           payment_status: 'paid',
-          status: 'pending', // СТАТУС: ОЖИДАЕТ ОДОБРЕНИЯ АДМИНИСТРАТОРА
+          status: 'pending', // Ожидает одобрения руководителем
           notes: `Заявка от ${new Date().toLocaleDateString('ru-RU')}`,
           created_at: new Date().toISOString(),
         };
 
-        // Сохраняем в Supabase
-        await supabase.from('profiles').insert(newStudent);
+        // Запись в Supabase
+        const { error: insertError } = await supabase.from('profiles').insert([newStudent]);
 
-        // Также сохраняем в локальную базу браузера
-        const stored = localStorage.getItem('arvesti_students_db');
-        const list: ProfileRow[] = stored ? JSON.parse(stored) : [];
-        list.push(newStudent);
-        localStorage.setItem('arvesti_students_db', JSON.stringify(list));
+        if (insertError) {
+          console.error('Supabase error:', insertError);
+          if (insertError.message?.includes('duplicate key') || insertError.code === '23505') {
+            setErrorMsg('Ученица с таким логином уже зарегистрирована. Выберите другой логин.');
+            setLoading(false);
+            return;
+          }
+          setErrorMsg('Ошибка сохранения в базу данных: ' + insertError.message);
+          setLoading(false);
+          return;
+        }
 
         setSuccessMsg(
-          'Заявка успешно отправлена администратору! Как только руководитель одобрит её, вы сможете войти по своему логину и паролю.'
+          'Заявка успешно отправлена руководителю студии! После того как Линда Азизян примет заявку, вы сможете войти под своим логином.'
         );
         setMode('login');
         setPassword('');
       } catch (err: any) {
-        setErrorMsg('Ошибка регистрации: ' + (err.message || 'попробуйте снова'));
+        setErrorMsg('Ошибка: ' + (err.message || 'попробуйте снова'));
       } finally {
         setLoading(false);
       }
@@ -298,7 +290,7 @@ export default function HomePage() {
           {mode === 'register' && (
             <div>
               <label className="block text-neutral-300 font-semibold mb-1">
-                Номер телефона <span className="text-neutral-500 font-normal">(для связи с руководителем)</span>
+                Номер телефона <span className="text-neutral-500 font-normal">(для связи)</span>
               </label>
               <div className="relative">
                 <input
@@ -381,7 +373,7 @@ export default function HomePage() {
             className="w-full py-3 px-4 rounded-xl bg-white hover:bg-neutral-200 text-black font-black text-sm transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
           >
             {loading ? (
-              <span>Проверка данных...</span>
+              <span>Отправка данных...</span>
             ) : mode === 'login' ? (
               <>
                 <span>Войти в кабинет</span>
