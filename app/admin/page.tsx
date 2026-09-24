@@ -10,7 +10,6 @@ import {
   CalendarCheck,
   CreditCard,
   Check,
-  X,
   CheckCircle2,
   BarChart3,
   Shield,
@@ -24,6 +23,7 @@ import {
   Edit3,
   Search,
   Phone,
+  X,
 } from 'lucide-react';
 import { AttendanceCharts } from '@/components/AttendanceCharts';
 import {
@@ -54,53 +54,18 @@ export default function AdminDashboard() {
     { id: 'grp-4', name: 'ARVESTI 4.0', age_category: 'Младшая группа', schedule: 'Сб, Вс', time: '15:30 - 17:00', days_of_week: ['Сб', 'Вс'] },
   ]);
 
-  // Ученицы
-  const [students, setStudents] = useState<ProfileRow[]>([
-    { id: 'demo-1', username: 'madina', full_name: 'Мадина Карданова', phone: '+7 (928) 111-22-33', role: 'student', group_id: 'grp-1', account_type: 'subscription', payment_status: 'paid', status: 'active', payment_due_date: '31.10.2026' },
-    { id: 'demo-2', username: 'amina', full_name: 'Амина Гаджиева', phone: '+7 (928) 222-33-44', role: 'student', group_id: 'grp-2', account_type: 'subscription', payment_status: 'overdue', status: 'active', payment_due_date: '27.10.2026' },
-    { id: 'demo-3', username: 'diana', full_name: 'Диана Алиева', phone: '+7 (928) 333-44-55', role: 'student', group_id: 'grp-1', account_type: 'subscription', payment_status: 'paid', status: 'pending', notes: 'Заявка на вступление в группу ARVESTI 1.0' },
-  ]);
+  // Данные из Supabase
+  const [students, setStudents] = useState<ProfileRow[]>([]);
+  const [news, setNews] = useState<NewsRow[]>([]);
+  const [notifications, setNotifications] = useState<AppNotificationRow[]>([]);
 
-  // Новости
-  const [news, setNews] = useState<NewsRow[]>([
-    {
-      id: 'news-1',
-      title: 'Генеральная репетиция к городскому концерту',
-      content: 'Все группы приглашаются на общую репетицию в воскресенье в 16:00 в большом зале.',
-      date: '24 сентября 2026',
-      author: 'Линда Азизян',
-      category: 'event',
-      pinned: true,
-    },
-    {
-      id: 'news-2',
-      title: 'Своевременная оплата абонементов за октябрь',
-      content: 'Напоминаем, что абонементы на следующий месяц необходимо оплатить до 30 числа текущего месяца.',
-      date: '22 сентября 2026',
-      author: 'Администрация ARVESTI',
-      category: 'payment_reminder',
-      pinned: false,
-    },
-  ]);
-
-  // Уведомления
-  const [notifications, setNotifications] = useState<AppNotificationRow[]>([
-    {
-      id: 'notif-1',
-      target_group_id: 'all',
-      title: 'Форма для тренировок',
-      message: 'Не забывайте брать чистую сменную обувь (балетки или чешки) и удобную тренировочную одежду.',
-      type: 'reminder',
-      created_at: '24.09.2026 14:00',
-    },
-  ]);
-
-  // Поля форм
+  // Формы новостей
   const [newsTitle, setNewsTitle] = useState('');
   const [newsContent, setNewsContent] = useState('');
   const [newsCategory, setNewsCategory] = useState<'announcement' | 'schedule_change' | 'payment_reminder' | 'event'>('announcement');
   const [newsPinned, setNewsPinned] = useState(false);
 
+  // Формы уведомлений
   const [notifTargetGroup, setNotifTargetGroup] = useState('all');
   const [notifTitle, setNotifTitle] = useState('');
   const [notifMessage, setNotifMessage] = useState('');
@@ -111,21 +76,40 @@ export default function AdminDashboard() {
   const [editingStudent, setEditingStudent] = useState<ProfileRow | null>(null);
   const [studentToDelete, setStudentToDelete] = useState<ProfileRow | null>(null);
 
-  // Загрузка
+  // Загрузка всех данных из Supabase
   const fetchData = async () => {
     try {
-      const { data } = await supabase.from('profiles').select('*').eq('role', 'student');
-      if (data && data.length > 0) {
-        setStudents(data as ProfileRow[]);
-      } else {
-        const stored = localStorage.getItem('arvesti_students_db');
-        if (stored) {
-          setStudents(JSON.parse(stored));
-        }
+      const [studentsRes, newsRes, notifsRes] = await Promise.all([
+        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+        supabase.from('news').select('*').order('created_at', { ascending: false }),
+        supabase.from('notifications').select('*').order('created_at', { ascending: false }),
+      ]);
+
+      if (studentsRes.data) {
+        setStudents(studentsRes.data as ProfileRow[]);
       }
-    } catch {
-      const stored = localStorage.getItem('arvesti_students_db');
-      if (stored) setStudents(JSON.parse(stored));
+
+      if (newsRes.data && newsRes.data.length > 0) {
+        setNews(newsRes.data as NewsRow[]);
+      } else {
+        setNews([
+          {
+            id: 'news-init-1',
+            title: 'Добро пожаловать в студию кавказских танцев ARVESTI',
+            content: 'Занятия проходят в ТРЦ «Арбат», Октябрьская ул., 17. Ждём вас на тренировках в чистой сменной обуви!',
+            date: new Date().toLocaleDateString('ru-RU'),
+            author: 'Линда Азизян',
+            category: 'announcement',
+            pinned: true,
+          },
+        ]);
+      }
+
+      if (notifsRes.data) {
+        setNotifications(notifsRes.data as AppNotificationRow[]);
+      }
+    } catch (err) {
+      console.error('Ошибка загрузки данных из Supabase:', err);
     } finally {
       setLoading(false);
     }
@@ -158,55 +142,52 @@ export default function AdminDashboard() {
 
   // ОДОБРЕНИЕ ЗАЯВКИ
   const handleApproveStudent = async (studentId: string) => {
-    const updated = students.map((s) => (s.id === studentId ? { ...s, status: 'active' as const } : s));
-    setStudents(updated);
-    localStorage.setItem('arvesti_students_db', JSON.stringify(updated));
+    setStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, status: 'active' as const } : s)));
     try {
       await supabase.from('profiles').update({ status: 'active' }).eq('id', studentId);
-    } catch {}
+    } catch (err) {
+      console.error('Ошибка обновления статуса ученицы:', err);
+    }
   };
 
-  // ПОЛНОЕ УДАЛЕНИЕ УЧЕНИЦЫ
+  // УДАЛЕНИЕ УЧЕНИЦЫ
   const handleConfirmDeleteStudent = async () => {
     if (!studentToDelete) return;
     const idToDelete = studentToDelete.id;
 
-    const updated = students.filter((s) => s.id !== idToDelete);
-    setStudents(updated);
-    localStorage.setItem('arvesti_students_db', JSON.stringify(updated));
-
+    setStudents((prev) => prev.filter((s) => s.id !== idToDelete));
     if (editingStudent?.id === idToDelete) setEditingStudent(null);
     setStudentToDelete(null);
 
     try {
       await supabase.from('profiles').delete().eq('id', idToDelete);
-    } catch {}
+    } catch (err) {
+      console.error('Ошибка удаления ученицы:', err);
+    }
   };
 
+  // СМЕНА СТАТУСА ОПЛАТЫ
   const handleTogglePayment = async (studentId: string, currentStatus: string) => {
     const nextStatus = currentStatus === 'paid' ? 'overdue' : 'paid';
-    const updated = students.map((s) => (s.id === studentId ? { ...s, payment_status: nextStatus as any } : s));
-    setStudents(updated);
-    localStorage.setItem('arvesti_students_db', JSON.stringify(updated));
+    setStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, payment_status: nextStatus as any } : s)));
     try {
       await supabase.from('profiles').update({ payment_status: nextStatus }).eq('id', studentId);
     } catch {}
   };
 
+  // РЕДАКТИРОВАНИЕ УЧЕНИЦЫ
   const handleSaveStudentEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStudent) return;
-    const updated = students.map((s) => (s.id === editingStudent.id ? editingStudent : s));
-    setStudents(updated);
-    localStorage.setItem('arvesti_students_db', JSON.stringify(updated));
+    setStudents((prev) => prev.map((s) => (s.id === editingStudent.id ? editingStudent : s)));
     try {
       await supabase.from('profiles').update(editingStudent).eq('id', editingStudent.id);
     } catch {}
     setEditingStudent(null);
   };
 
-  // Новости
-  const handleAddNews = (e: React.FormEvent) => {
+  // СОЗДАНИЕ И СОХРАНЕНИЕ НОВОСТИ В SUPABASE
+  const handleAddNews = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newsTitle.trim() || !newsContent.trim()) return;
 
@@ -224,14 +205,26 @@ export default function AdminDashboard() {
     setNewsTitle('');
     setNewsContent('');
     setNewsPinned(false);
+
+    try {
+      await supabase.from('news').insert([newPost]);
+    } catch (err) {
+      console.error('Ошибка сохранения новости в Supabase:', err);
+    }
   };
 
-  const handleDeleteNews = (id: string) => {
-    setNews(news.filter((n) => n.id !== id));
+  // УДАЛЕНИЕ НОВОСТИ ИЗ SUPABASE
+  const handleDeleteNews = async (id: string) => {
+    setNews((prev) => prev.filter((n) => n.id !== id));
+    try {
+      await supabase.from('news').delete().eq('id', id);
+    } catch (err) {
+      console.error('Ошибка удаления новости:', err);
+    }
   };
 
-  // Уведомления
-  const handleSendNotification = (e: React.FormEvent) => {
+  // СОЗДАНИЕ И СОХРАНЕНИЕ УВЕДОМЛЕНИЯ В SUPABASE
+  const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!notifTitle.trim() || !notifMessage.trim()) return;
 
@@ -249,10 +242,20 @@ export default function AdminDashboard() {
     setNotifMessage('');
     setNotifSentSuccess('Уведомление успешно отправлено ученицам!');
     setTimeout(() => setNotifSentSuccess(''), 4000);
+
+    try {
+      await supabase.from('notifications').insert([newNotif]);
+    } catch (err) {
+      console.error('Ошибка отправки уведомления:', err);
+    }
   };
 
-  const handleDeleteNotification = (id: string) => {
-    setNotifications(notifications.filter((n) => n.id !== id));
+  // УДАЛЕНИЕ УВЕДОМЛЕНИЯ
+  const handleDeleteNotification = async (id: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    try {
+      await supabase.from('notifications').delete().eq('id', id);
+    } catch {}
   };
 
   const pendingRequests = useMemo(() => students.filter((s) => s.status === 'pending'), [students]);
@@ -285,7 +288,7 @@ export default function AdminDashboard() {
           </div>
           <h2 className="text-xl font-black text-white">Панель руководителя ARVESTI</h2>
           <p className="text-xs text-neutral-400">
-            Введите мастер-пароль для доступа к управлению ученицами и студией
+            Введите мастер-пароль для доступа к управлению студией
           </p>
         </div>
 
@@ -420,7 +423,7 @@ export default function AdminDashboard() {
         </button>
       </div>
 
-      {/* 1. ЗАЯВКИ НА РЕГИСТРАЦИЮ */}
+      {/* 1. ЗАЯВКИ */}
       {activeSection === 'requests' && (
         <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
@@ -430,7 +433,7 @@ export default function AdminDashboard() {
                 <span>Новые заявки на регистрацию</span>
               </h2>
               <p className="text-xs text-neutral-400">
-                После нажатия «Принять» ученица сможет войти в кабинет по своему логину и паролю
+                Заявки с телефонов учениц, сохранённые в Supabase
               </p>
             </div>
             <span className="text-xs font-mono text-neutral-300 font-bold">
@@ -489,7 +492,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 2. УЧЕНИЦЫ (УДАЛЕНИЕ И РЕДАКТИРОВАНИЕ) */}
+      {/* 2. УЧЕНИЦЫ */}
       {activeSection === 'students' && (
         <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-800">
@@ -531,7 +534,7 @@ export default function AdminDashboard() {
           <div className="divide-y divide-neutral-800">
             {groupStudents.length === 0 ? (
               <div className="py-12 text-center text-xs text-neutral-400">
-                Ученицы по заданным критериям не найдены.
+                Ученицы не найдены.
               </div>
             ) : (
               groupStudents.map((std) => {
@@ -574,7 +577,6 @@ export default function AdminDashboard() {
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
 
-                      {/* КНОПКА УДАЛЕНИЯ УЧЕНИЦЫ */}
                       <button
                         onClick={() => setStudentToDelete(std)}
                         className="p-1.5 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors cursor-pointer"
@@ -591,7 +593,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 3. НОВОСТИ */}
+      {/* 3. НОВОСТИ С ПОСТОЯННОЙ ПАМЯТЬЮ В SUPABASE */}
       {activeSection === 'news' && (
         <div className="space-y-6">
           <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-4">
@@ -602,11 +604,11 @@ export default function AdminDashboard() {
 
             <form onSubmit={handleAddNews} className="space-y-3 text-xs">
               <div>
-                <label className="block text-neutral-300 font-semibold mb-1">Заголовок</label>
+                <label className="block text-neutral-300 font-semibold mb-1">Заголовок новости</label>
                 <input
                   type="text"
                   required
-                  placeholder="Заголовок новости"
+                  placeholder="Например: Перенос репетиции к городскому концерту"
                   value={newsTitle}
                   onChange={(e) => setNewsTitle(e.target.value)}
                   className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white focus:outline-none focus:border-white"
@@ -618,7 +620,7 @@ export default function AdminDashboard() {
                 <textarea
                   required
                   rows={3}
-                  placeholder="Текст новости для учениц..."
+                  placeholder="Текст новости для учениц студии..."
                   value={newsContent}
                   onChange={(e) => setNewsContent(e.target.value)}
                   className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white focus:outline-none focus:border-white"
@@ -649,7 +651,7 @@ export default function AdminDashboard() {
                     className="rounded bg-neutral-950 border-neutral-800 w-4 h-4 cursor-pointer"
                   />
                   <label htmlFor="pinnedNewsCheck" className="text-neutral-300 cursor-pointer">
-                    Закрепить вверху
+                    Закрепить вверху ленты
                   </label>
                 </div>
 
@@ -659,7 +661,7 @@ export default function AdminDashboard() {
                     className="py-2 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-extrabold text-xs transition-colors flex items-center gap-2 cursor-pointer shadow"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>Опубликовать</span>
+                    <span>Опубликовать в базу</span>
                   </button>
                 </div>
               </div>
@@ -688,6 +690,7 @@ export default function AdminDashboard() {
                   <button
                     onClick={() => handleDeleteNews(item.id)}
                     className="p-2 rounded-lg text-neutral-500 hover:text-red-400 hover:bg-neutral-800 transition-colors cursor-pointer"
+                    title="Удалить новость"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -858,7 +861,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* МОДАЛЬНОЕ ОКНО: ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ УЧЕНИЦЫ */}
+      {/* МОДАЛЬНОЕ ОКНО: ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ */}
       {studentToDelete && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl text-center">
@@ -896,7 +899,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* МОДАЛЬНОЕ ОКНО: РЕДАКТИРОВАНИЕ УЧЕНИЦЫ */}
+      {/* МОДАЛЬНОЕ ОКНО: РЕДАКТИРОВАНИЕ */}
       {editingStudent && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
