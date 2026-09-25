@@ -48,12 +48,9 @@ export interface LessonRow {
 
 export interface AttendanceRow {
   id: string;
-  lesson_id?: string;
+  lesson_id: string;
   student_id: string;
-  student_name?: string;
-  group_id?: string;
   status: AttendanceStatus;
-  date?: string;
   confirmed_at?: string;
   actual_present?: boolean;
   created_at?: string;
@@ -83,6 +80,16 @@ export interface LessonPlanRow {
   choreography_notes?: string;
   general_notes?: string;
   updated_at?: string;
+}
+
+export interface AppNotificationRow {
+  id: string;
+  target_group_id: string;
+  title: string;
+  message: string;
+  type: 'reminder' | 'schedule' | 'urgent' | 'announcement';
+  created_at?: string;
+  is_read?: boolean;
 }
 
 export interface NewsRow {
@@ -115,13 +122,4 @@ export interface StudioRuleSection {
   title: string;
   items: string[];
   sort_order: number;
-}
-
-export interface AppNotificationRow {
-  id: string;
-  target_group_id: string;
-  title: string;
-  message: string;
-  type: 'reminder' | 'schedule' | 'urgent' | 'announcement';
-  created_at: string;
 }
