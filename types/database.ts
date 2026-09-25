@@ -2,7 +2,7 @@ export type UserRole = 'admin' | 'student';
 export type AccountType = 'subscription' | 'drop_in';
 export type PaymentStatus = 'paid' | 'overdue';
 export type AttendanceStatus = 'going' | 'not_going' | 'unconfirmed';
-export type StudentStatus = 'active' | 'pending' | 'rejected';
+export type StudentStatus = 'active' | 'pending' | 'rejected' | 'inactive';
 export type DropInStatus = 'pending' | 'approved' | 'rejected' | 'completed';
 
 export interface GroupRow {
