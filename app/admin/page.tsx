@@ -24,6 +24,7 @@ import {
   MessageCircle,
   Clock,
   UserCheck,
+  BarChart3,
 } from 'lucide-react';
 import { ProfileRow, NewsRow, AppNotificationRow, StudioRuleSection } from '@/types/database';
 
@@ -290,26 +291,6 @@ export default function AdminPage() {
     }
   };
 
-  const handleMarkActualAttendance = async (studentId: string, isPresent: boolean) => {
-    const timeStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    const markNote = isPresent ? `Была в зале (${timeStr})` : `Пропуск (${timeStr})`;
-
-    setStudents((prev) =>
-      prev.map((s) => (s.id === studentId ? { ...s, notes: markNote } : s))
-    );
-
-    try {
-      await supabase.from('profiles').update({ notes: markNote }).eq('id', studentId);
-      await supabase.from('attendance').upsert({
-        id: `att-${studentId}`,
-        student_id: studentId,
-        status: isPresent ? 'going' : 'not_going',
-        actual_present: isPresent,
-        confirmed_at: new Date().toISOString(),
-      });
-    } catch {}
-  };
-
   const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!notifTitle.trim() || !notifMessage.trim()) return;
@@ -483,7 +464,7 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6 pb-24 max-w-lg mx-auto">
-      {/* Шапка админки */}
+      {/* Шапка админки (БЕЗ кнопки "В вид учениц") */}
       <div className="flex items-center justify-between border-b border-neutral-800 pb-3 pt-1">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-white text-black flex items-center justify-center font-black text-sm shadow">
@@ -496,21 +477,17 @@ export default function AdminPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Link
-            href="/"
-            className="py-1 px-2.5 rounded-lg border border-neutral-700 bg-neutral-900 text-neutral-300 text-[11px] font-semibold"
-          >
-            В вид учениц
-          </Link>
           <button
             onClick={() => {
               localStorage.removeItem('arvesti_admin_authorized');
               setIsAdminAuthorized(false);
+              window.location.href = '/';
             }}
-            className="p-1.5 rounded-lg bg-red-600/10 border border-red-500/30 text-red-400 text-xs cursor-pointer"
-            title="Выйти"
+            className="p-1.5 rounded-lg bg-red-600/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-1.5 cursor-pointer"
+            title="Выйти из кабинета руководителя"
           >
             <LogOut className="w-4 h-4" />
+            <span className="text-[11px] font-semibold">Выйти</span>
           </button>
         </div>
       </div>
@@ -569,7 +546,7 @@ export default function AdminPage() {
         </button>
       </div>
 
-      {/* 1. ПОСЕЩАЕМОСТЬ */}
+      {/* 1. ПОСЕЩАЕМОСТЬ С ГРАФИКАМИ ПО ГРУППАМ */}
       {activeSection === 'attendance' && (
         <div className="space-y-4">
           <div className="p-5 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-4">
@@ -614,18 +591,18 @@ export default function AdminPage() {
                 type="button"
                 onClick={() => setAttendanceFilter('going')}
                 className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                  attendanceFilter === 'going' ? 'bg-emerald-500/25 border-emerald-400' : 'bg-emerald-500/10 border-emerald-500/30'
+                  attendanceFilter === 'going' ? 'bg-emerald-500/25 border-emerald-400 shadow' : 'bg-emerald-500/10 border-emerald-500/30'
                 }`}
               >
                 <p className="text-2xl font-black text-emerald-400">{goingStudents.length}</p>
-                <p className="text-[11px] font-bold text-emerald-300 mt-0.5">Смогут</p>
+                <p className="text-[11px] font-bold text-emerald-300 mt-0.5">Смогут прийти</p>
               </button>
 
               <button
                 type="button"
                 onClick={() => setAttendanceFilter('not_going')}
                 className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                  attendanceFilter === 'not_going' ? 'bg-red-500/25 border-red-400' : 'bg-red-500/10 border-red-500/30'
+                  attendanceFilter === 'not_going' ? 'bg-red-500/25 border-red-400 shadow' : 'bg-red-500/10 border-red-500/30'
                 }`}
               >
                 <p className="text-2xl font-black text-red-400">{notGoingStudents.length}</p>
@@ -636,91 +613,200 @@ export default function AdminPage() {
                 type="button"
                 onClick={() => setAttendanceFilter('unconfirmed')}
                 className={`p-3 rounded-2xl border transition-all cursor-pointer ${
-                  attendanceFilter === 'unconfirmed' ? 'bg-neutral-800 border-neutral-600' : 'bg-neutral-950 border-neutral-800'
+                  attendanceFilter === 'unconfirmed' ? 'bg-neutral-800 border-neutral-600 shadow' : 'bg-neutral-950 border-neutral-800'
                 }`}
               >
                 <p className="text-2xl font-black text-neutral-400">{unconfirmedStudents.length}</p>
-                <p className="text-[11px] font-bold text-neutral-400 mt-0.5">Без ответа</p>
+                <p className="text-[11px] font-bold text-neutral-400 mt-0.5">Не ответили</p>
               </button>
             </div>
 
-            {/* Список учениц */}
-            <div className="divide-y divide-neutral-800 pt-2">
-              {filteredAttendanceStudents.map((st) => {
-                const isGoing = st.attendance_status === 'going' || st.notes?.includes('Смогу прийти') || st.notes?.includes('Будет на занятии');
-                const isNotGoing = st.attendance_status === 'not_going' || st.notes?.includes('Не смогу прийти') || st.notes?.includes('Не сможет');
-                const wasInHall = st.notes?.includes('Была в зале');
+            {/* ВИЗУАЛИЗАЦИЯ: ГРАФИК ПОСЕЩАЕМОСТИ КАЖДОЙ ГРУППЫ */}
+            <div className="p-4 rounded-2xl bg-neutral-950/80 border border-neutral-800/90 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <BarChart3 className="w-4 h-4 text-amber-400" />
+                  <span>График явки по группам студии</span>
+                </h3>
+                <span className="text-[10px] text-neutral-400">Нажмите для фильтра</span>
+              </div>
 
-                return (
-                  <div key={st.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
-                        isGoing ? 'bg-emerald-500 text-black' : isNotGoing ? 'bg-red-600 text-white' : 'bg-neutral-800 text-neutral-400'
-                      }`}>
-                        {st.full_name.charAt(0)}
-                      </div>
-                      <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {groups.map((grp) => {
+                  const grpStudents = activeStudents.filter((s) => s.group_id === grp.id);
+                  const total = grpStudents.length;
+                  const going = grpStudents.filter((s) => s.attendance_status === 'going' || s.notes?.includes('Смогу прийти') || s.notes?.includes('Будет на занятии')).length;
+                  const notGoing = grpStudents.filter((s) => s.attendance_status === 'not_going' || s.notes?.includes('Не смогу прийти') || s.notes?.includes('Не сможет')).length;
+                  const unconf = Math.max(0, total - going - notGoing);
+                  const pct = total > 0 ? Math.round((going / total) * 100) : 0;
+                  const isSelected = attendanceGroupId === grp.id;
+
+                  return (
+                    <button
+                      key={grp.id}
+                      type="button"
+                      onClick={() => setAttendanceGroupId(isSelected ? 'all' : grp.id)}
+                      className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-neutral-900 border-white shadow-lg ring-1 ring-white/20'
+                          : 'bg-neutral-900/40 border-neutral-800 hover:border-neutral-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-white text-sm">{st.full_name}</span>
-                          <span className="text-[10px] text-neutral-400 font-mono">{st.phone}</span>
+                          <span className="font-bold text-white text-xs">{grp.name}</span>
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-neutral-950 border border-neutral-800 text-neutral-400">
+                            {grp.age_category}
+                          </span>
                         </div>
-                        {st.notes && <p className="text-[10px] text-neutral-400 mt-0.5">{st.notes}</p>}
+                        <span className={`text-xs font-black ${pct >= 75 ? 'text-emerald-400' : pct >= 50 ? 'text-amber-400' : 'text-neutral-400'}`}>
+                          {total > 0 ? `${pct}%` : '—'}
+                        </span>
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-2 self-end sm:self-auto">
-                      {isGoing ? (
-                        <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black">
-                          Смогу
-                        </span>
-                      ) : isNotGoing ? (
-                        <span className="px-2.5 py-1 rounded-xl bg-red-500/20 text-red-400 border border-red-500/30 text-[10px] font-black">
-                          Не смогу
-                        </span>
-                      ) : (
-                        <span className="px-2.5 py-1 rounded-xl bg-neutral-800 text-neutral-400 text-[10px]">
-                          Не ответила
-                        </span>
-                      )}
+                      <p className="text-[10px] text-neutral-400 mb-2 font-mono">{grp.time}</p>
 
-                      <button
-                        type="button"
-                        onClick={() => { setPersonalMsgStudent(st); setPersonalMsgText(''); }}
-                        title="Написать личное сообщение"
-                        className="p-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
-                      >
-                        <MessageCircle className="w-3 h-3" />
-                        <span>Написать</span>
-                      </button>
+                      {/* Сегментированная цветная полоса */}
+                      <div className="w-full h-2 rounded-full bg-neutral-950 overflow-hidden flex gap-0.5">
+                        {total > 0 ? (
+                          <>
+                            <div
+                              style={{ width: `${(going / total) * 100}%` }}
+                              className="bg-emerald-500 h-full transition-all"
+                              title={`Смогут: ${going}`}
+                            />
+                            <div
+                              style={{ width: `${(notGoing / total) * 100}%` }}
+                              className="bg-red-500 h-full transition-all"
+                              title={`Не смогут: ${notGoing}`}
+                            />
+                            <div
+                              style={{ width: `${(unconf / total) * 100}%` }}
+                              className="bg-neutral-700 h-full transition-all"
+                              title={`Без ответа: ${unconf}`}
+                            />
+                          </>
+                        ) : (
+                          <div className="w-full bg-neutral-800 h-full" />
+                        )}
+                      </div>
 
-                      <div className="flex items-center gap-1 pl-1 border-l border-neutral-800">
+                      {/* Подписи под полосой */}
+                      <div className="flex items-center justify-between text-[9px] text-neutral-400 mt-2">
+                        <span className="text-emerald-400 font-bold flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          Смогут: {going}
+                        </span>
+                        <span className="text-red-400 font-bold flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                          Пропуск: {notGoing}
+                        </span>
+                        <span className="text-neutral-400 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-neutral-600" />
+                          Ждут: {unconf}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Фильтры списков */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setAttendanceFilter('all')}
+                className={`py-1 px-2.5 rounded-xl font-bold cursor-pointer border ${
+                  attendanceFilter === 'all' ? 'bg-white text-black border-white' : 'bg-neutral-950 border-neutral-800 text-neutral-400'
+                }`}
+              >
+                Все ({attendanceStudents.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAttendanceFilter('going')}
+                className={`py-1 px-2.5 rounded-xl font-bold cursor-pointer border ${
+                  attendanceFilter === 'going' ? 'bg-emerald-500 text-black border-emerald-500' : 'bg-neutral-950 border-emerald-500/30 text-emerald-400'
+                }`}
+              >
+                Смогут ({goingStudents.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAttendanceFilter('not_going')}
+                className={`py-1 px-2.5 rounded-xl font-bold cursor-pointer border ${
+                  attendanceFilter === 'not_going' ? 'bg-red-500 text-white border-red-500' : 'bg-neutral-950 border-red-500/30 text-red-400'
+                }`}
+              >
+                Не смогут ({notGoingStudents.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAttendanceFilter('unconfirmed')}
+                className={`py-1 px-2.5 rounded-xl font-bold cursor-pointer border ${
+                  attendanceFilter === 'unconfirmed' ? 'bg-neutral-700 text-white border-neutral-600' : 'bg-neutral-950 border-neutral-800 text-neutral-400'
+                }`}
+              >
+                Без ответа ({unconfirmedStudents.length})
+              </button>
+            </div>
+
+            {/* Список учениц (БЕЗ кнопок «В зале» и «Пропуск», только списки и кнопка «Написать») */}
+            <div className="divide-y divide-neutral-800 pt-2">
+              {filteredAttendanceStudents.length === 0 ? (
+                <p className="text-neutral-500 text-center py-6 text-xs">В этом списке пока нет учениц</p>
+              ) : (
+                filteredAttendanceStudents.map((st) => {
+                  const isGoing = st.attendance_status === 'going' || st.notes?.includes('Смогу прийти') || st.notes?.includes('Будет на занятии');
+                  const isNotGoing = st.attendance_status === 'not_going' || st.notes?.includes('Не смогу прийти') || st.notes?.includes('Не сможет');
+
+                  return (
+                    <div key={st.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                          isGoing ? 'bg-emerald-500 text-black' : isNotGoing ? 'bg-red-600 text-white' : 'bg-neutral-800 text-neutral-400'
+                        }`}>
+                          {st.full_name.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-white text-sm">{st.full_name}</span>
+                            <span className="text-[10px] text-neutral-400 font-mono">{st.phone}</span>
+                          </div>
+                          {st.notes && <p className="text-[10px] text-neutral-400 mt-0.5">{st.notes}</p>}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-auto">
+                        {isGoing ? (
+                          <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black">
+                            Сможет прийти
+                          </span>
+                        ) : isNotGoing ? (
+                          <span className="px-2.5 py-1 rounded-xl bg-red-500/20 text-red-400 border border-red-500/30 text-[10px] font-black">
+                            Не сможет прийти
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-xl bg-neutral-800 text-neutral-400 text-[10px]">
+                            Не ответила
+                          </span>
+                        )}
+
                         <button
                           type="button"
-                          onClick={() => handleMarkActualAttendance(st.id, true)}
-                          title="Была в зале"
-                          className={`py-1 px-2 rounded-lg font-bold text-[10px] flex items-center gap-1 cursor-pointer border ${
-                            wasInHall ? 'bg-emerald-500 text-black border-emerald-400' : 'bg-neutral-950 border-neutral-800 text-neutral-400'
-                          }`}
+                          onClick={() => { setPersonalMsgStudent(st); setPersonalMsgText(''); }}
+                          title="Написать личное сообщение ученице"
+                          className="p-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
                         >
-                          <Check className="w-3 h-3" />
-                          <span>В зале</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleMarkActualAttendance(st.id, false)}
-                          title="Пропуск"
-                          className={`py-1 px-2 rounded-lg font-bold text-[10px] flex items-center gap-1 cursor-pointer border ${
-                            st.notes?.includes('Пропуск') ? 'bg-red-600 text-white border-red-500' : 'bg-neutral-950 border-neutral-800 text-neutral-400'
-                          }`}
-                        >
-                          <X className="w-3 h-3" />
-                          <span>Пропуск</span>
+                          <MessageCircle className="w-3 h-3" />
+                          <span>Написать</span>
                         </button>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
