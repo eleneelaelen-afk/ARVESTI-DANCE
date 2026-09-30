@@ -1,891 +1,1246 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import {
-  Home,
-  Newspaper,
-  BookOpen,
-  User as UserIcon,
+  Users,
+  UserPlus,
+  CalendarCheck,
+  Trash2,
   Check,
   X,
+  Search,
   CheckCircle2,
   XCircle,
-  Bell,
-  CreditCard,
-  MapPin,
-  Clock,
-  Sparkles,
-  Lock,
-  LogOut,
   AlertCircle,
   AlertOctagon,
+  LogOut,
+  Send,
+  Newspaper,
+  Phone,
+  Clock,
+  Edit3,
+  Shield,
+  Lock,
+  Bell,
+  Settings,
+  MapPin,
+  Save,
+  MessageCircle,
 } from 'lucide-react';
-import { ProfileRow, GroupRow, NewsRow, AppNotificationRow, StudioRuleSection } from '@/types/database';
+import { ProfileRow, NewsRow, StudioRuleSection } from '@/types/database';
 
-export default function ArvestiApp() {
+export default function AdminPage() {
   const supabase = createClient();
 
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [checkingSession, setCheckingSession] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'news' | 'rules' | 'account'>('dashboard');
-
-  const [profile, setProfile] = useState<ProfileRow | null>(null);
-  const [group, setGroup] = useState<GroupRow | null>(null);
-  const [news, setNews] = useState<NewsRow[]>([]);
-  const [notifications, setNotifications] = useState<AppNotificationRow[]>([]);
-  const [rules, setRules] = useState<StudioRuleSection[]>([]);
-  const [showNotifications, setShowNotifications] = useState(false);
-
-  const [pushSupported, setPushSupported] = useState(false);
-  const [pushPermission, setPushPermission] = useState<string>('default');
-  const [activeToast, setActiveToast] = useState<AppNotificationRow | null>(null);
-
-  const [attendanceStatus, setAttendanceStatus] = useState<'going' | 'not_going' | 'unconfirmed'>('unconfirmed');
-  const [attendanceLoading, setAttendanceLoading] = useState(false);
-
-  const [authMode, setAuthMode] = useState<'login' | 'register' | 'admin'>('login');
-  const [authUsername, setAuthUsername] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [regFullName, setRegFullName] = useState('');
-  const [regPhone, setRegPhone] = useState('+7 ');
-  const [regGroup, setRegGroup] = useState('grp-1');
-  const [regType, setRegType] = useState<'subscription' | 'drop_in'>('subscription');
+  const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
-  const [authSuccess, setAuthSuccess] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
 
-  useEffect(() => {
-    async function checkAuth() {
-      if (typeof window !== 'undefined' && 'Notification' in window) {
-        setPushSupported(true);
-        setPushPermission(Notification.permission);
-      }
+  const [activeSection, setActiveSection] = useState<'attendance' | 'students' | 'notifications' | 'requests' | 'settings'>('attendance');
 
-      let st: ProfileRow | null = null;
-      const saved = typeof window !== 'undefined' ? localStorage.getItem('arvesti_current_student') : null;
-      if (saved) {
-        try {
-          st = JSON.parse(saved);
-        } catch {}
-      }
+  const [students, setStudents] = useState<ProfileRow[]>([]);
+  const [news, setNews] = useState<NewsRow[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [rules, setRules] = useState<StudioRuleSection[]>([]);
+  const [loading, setLoading] = useState(true);
 
-      if (!st) {
-        const match = document.cookie.match(/arvesti_student_id=([^;]+)/);
-        if (match && match[1]) {
-          try {
-            const { data } = await supabase.from('profiles').select('*').eq('id', match[1]).maybeSingle();
-            if (data) st = data as ProfileRow;
-          } catch {}
-        }
-      }
+  const [studioAddress, setStudioAddress] = useState('ТРЦ «Арбат», Октябрьская ул., 17, Пятигорск');
+  const [settingsSuccess, setSettingsSuccess] = useState('');
 
-      if (st && st.id) {
-        setProfile(st);
-        setIsLoggedIn(true);
-        setupGroup(st.group_id);
-        fetchStudioData(st.id);
-      }
+  const [groups, setGroups] = useState([
+    { id: 'grp-1', name: 'ARVESTI 1.0', age_category: 'Старшая', schedule: 'Четверг, Суббота', time: 'Чт — 19:00, Сб — 16:30' },
+    { id: 'grp-2', name: 'ARVESTI 2.0', age_category: 'Старшая', schedule: 'Суббота и Воскресенье', time: '15:00' },
+    { id: 'grp-3', name: 'ARVESTI 3.0', age_category: 'Младшая', schedule: 'Суббота и Воскресенье', time: '14:00' },
+    { id: 'grp-4', name: 'ARVESTI 4.0', age_category: 'Младшая', schedule: 'Суббота и Воскресенье', time: '13:00' },
+  ]);
 
-      setCheckingSession(false);
-    }
+  const [selectedGroupId, setSelectedGroupId] = useState('all');
+  const [attendanceGroupId, setAttendanceGroupId] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
-    checkAuth();
-  }, [supabase]);
+  const [notifTarget, setNotifTarget] = useState('all');
+  const [notifTitle, setNotifTitle] = useState('');
+  const [notifMessage, setNotifMessage] = useState('');
+  const [notifType, setNotifType] = useState<'reminder' | 'schedule' | 'urgent' | 'announcement'>('reminder');
+  const [notifSentSuccess, setNotifSentSuccess] = useState('');
 
-  const setupGroup = (grpId?: string | null) => {
-    const id = grpId || 'grp-1';
-    setGroup({
-      id: id,
-      name: id === 'grp-2' ? 'ARVESTI 2.0' : id === 'grp-3' ? 'ARVESTI 3.0' : id === 'grp-4' ? 'ARVESTI 4.0' : 'ARVESTI 1.0',
-      age_category: id === 'grp-3' || id === 'grp-4' ? 'Младшая группа' : 'Старшая группа',
-      schedule: id === 'grp-1' ? 'Четверг, Суббота' : 'Суббота, Воскресенье',
-      time: id === 'grp-1' ? '19:00 - 20:30' : id === 'grp-2' ? '17:00 - 18:30' : id === 'grp-3' ? '14:00 - 15:30' : '15:30 - 17:00',
-      days_of_week: ['Чт', 'Сб'],
-    });
-  };
+  const [personalMsgStudent, setPersonalMsgStudent] = useState<ProfileRow | null>(null);
+  const [personalMsgText, setPersonalMsgText] = useState('');
 
-  const fetchStudioData = async (studentId: string) => {
+  const [editingStudent, setEditingStudent] = useState<ProfileRow | null>(null);
+  const [studentToDelete, setStudentToDelete] = useState<ProfileRow | null>(null);
+
+  const [attendanceFilter, setAttendanceFilter] = useState<'all' | 'going' | 'not_going' | 'unconfirmed'>('all');
+
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [cancelGroup, setCancelGroup] = useState('all');
+  const [cancelDate, setCancelDate] = useState('Ближайшее занятие');
+  const [cancelReason, setCancelReason] = useState('Болезнь педагога. Будет обязательно назначена отработка!');
+  const [cancelNotice, setCancelNotice] = useState('');
+
+  const fetchData = async () => {
     try {
-      const [profileRes, newsRes, notifsRes, rulesRes] = await Promise.all([
-        supabase.from('profiles').select('*').eq('id', studentId).maybeSingle(),
+      const savedAddress = typeof window !== 'undefined' ? localStorage.getItem('arvesti_studio_address') : null;
+      if (savedAddress) setStudioAddress(savedAddress);
+
+      const savedGroups = typeof window !== 'undefined' ? localStorage.getItem('arvesti_groups_schedule') : null;
+      if (savedGroups) {
+        try { setGroups(JSON.parse(savedGroups)); } catch {}
+      }
+
+      const [studentsRes, newsRes, notifsRes, rulesRes] = await Promise.all([
+        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
         supabase.from('news').select('*').order('created_at', { ascending: false }),
         supabase.from('notifications').select('*').order('created_at', { ascending: false }),
         supabase.from('studio_rules').select('*').order('sort_order', { ascending: true }),
       ]);
 
-      if (profileRes.data) {
-        const fresh = profileRes.data as ProfileRow;
-        setProfile(fresh);
-        localStorage.setItem('arvesti_current_student', JSON.stringify(fresh));
-
-        if (fresh.attendance_status) {
-          setAttendanceStatus(fresh.attendance_status as any);
-        } else if (fresh.notes?.includes('Будет на занятии')) {
-          setAttendanceStatus('going');
-        } else if (fresh.notes?.includes('Не сможет')) {
-          setAttendanceStatus('not_going');
-        }
-      }
-
-      if (newsRes.data && newsRes.data.length > 0) {
-        setNews(newsRes.data as NewsRow[]);
-      }
-      if (notifsRes.data && notifsRes.data.length > 0) {
-        setNotifications(notifsRes.data as AppNotificationRow[]);
-      }
-      if (rulesRes.data && rulesRes.data.length > 0) {
-        setRules(rulesRes.data as StudioRuleSection[]);
-      }
-    } catch (e) {
-      console.warn('Ошибка загрузки данных:', e);
+      if (studentsRes.data) setStudents(studentsRes.data as ProfileRow[]);
+      if (newsRes.data) setNews(newsRes.data as NewsRow[]);
+      if (notifsRes.data) setNotifications(notifsRes.data);
+      if (rulesRes.data && rulesRes.data.length > 0) setRules(rulesRes.data as StudioRuleSection[]);
+    } catch (err: any) {
+      console.warn('Ошибка загрузки:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (!profile?.id) return;
+    const isAuth = typeof window !== 'undefined' && localStorage.getItem('arvesti_admin_authorized') === 'true';
+    if (isAuth) {
+      setIsAdminAuthorized(true);
+      fetchData();
+    } else {
+      setLoading(false);
+    }
+  }, []);
 
-    const playChime = () => {
-      try {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioCtx) return;
-        const ctx = new AudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.25, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.35);
-      } catch {}
-    };
-
-    const channel = supabase
-      .channel('app_student_push')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, (payload) => {
-        const newNotif = payload.new as AppNotificationRow;
-        if (!newNotif) return;
-
-        if (newNotif.target_group_id === 'all' || newNotif.target_group_id === profile.group_id) {
-          playChime();
-          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-            try {
-              new Notification(newNotif.title, { body: newNotif.message, icon: '/favicon.ico' });
-            } catch {}
-          }
-          if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-            try { navigator.vibrate([200, 100, 200]); } catch {}
-          }
-          setActiveToast(newNotif);
-          setNotifications((prev) => [newNotif, ...prev]);
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [profile?.id, profile?.group_id, supabase]);
-
-  const handleRequestPush = async () => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      try {
-        const perm = await Notification.requestPermission();
-        setPushPermission(perm);
-        if (perm === 'granted') {
-          new Notification('Студия ARVESTI', {
-            body: 'Push-уведомления включены! Вы будете мгновенно получать новости и переносы занятий.',
-            icon: '/favicon.ico',
-          });
-        }
-      } catch {}
+  const handleVerifyAdmin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const pass = adminPasswordInput.trim();
+    if (pass === 'ArvestiAdmin2026!' || pass === 'admin123456' || pass === 'admin') {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('arvesti_admin_authorized', 'true');
+      }
+      setIsAdminAuthorized(true);
+      setAuthError('');
+      fetchData();
+    } else {
+      setAuthError('Неверный пароль администратора студии.');
     }
   };
 
-  const handleSetAttendance = async (status: 'going' | 'not_going') => {
-    if (!profile) return;
-    setAttendanceLoading(true);
-    setAttendanceStatus(status);
+  const handleApproveStudent = async (studentId: string) => {
+    setStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, status: 'active' as const } : s)));
+    try {
+      await supabase.from('profiles').update({ status: 'active' }).eq('id', studentId);
+    } catch {}
+  };
 
-    const timeStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    const dateStr = new Date().toLocaleDateString('ru-RU');
-    const noteText = status === 'going' ? `Будет на занятии (${dateStr} ${timeStr})` : `Не сможет прийти (${dateStr} ${timeStr})`;
+  const handleConfirmDeleteStudent = async () => {
+    if (!studentToDelete) return;
+    const idToDelete = studentToDelete.id;
+    setStudents((prev) => prev.filter((s) => s.id !== idToDelete));
+    if (editingStudent?.id === idToDelete) setEditingStudent(null);
+    setStudentToDelete(null);
+    try {
+      await supabase.from('profiles').delete().eq('id', idToDelete);
+    } catch {}
+  };
+
+  const handleTogglePayment = async (studentId: string, currentStatus: string) => {
+    const nextStatus = currentStatus === 'paid' ? 'overdue' : 'paid';
+    setStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, payment_status: nextStatus as any } : s)));
+    try {
+      await supabase.from('profiles').update({ payment_status: nextStatus }).eq('id', studentId);
+    } catch {}
+  };
+
+  const handleSaveStudentEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+    setStudents((prev) => prev.map((s) => (s.id === editingStudent.id ? editingStudent : s)));
+    try {
+      await supabase.from('profiles').update({
+        full_name: editingStudent.full_name,
+        group_id: editingStudent.group_id,
+        phone: editingStudent.phone,
+        username: editingStudent.username,
+        payment_status: editingStudent.payment_status,
+        payment_due_date: editingStudent.payment_due_date,
+      }).eq('id', editingStudent.id);
+      setCancelNotice(`Данные ученицы ${editingStudent.full_name} успешно обновлены!`);
+      setTimeout(() => setCancelNotice(''), 4000);
+    } catch (err: any) {
+      alert('Ошибка сохранения: ' + err.message);
+    }
+    setEditingStudent(null);
+  };
+
+  const handleCancelLesson = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const grp = groups.find((g) => g.id === cancelGroup);
+    const targetTitle = cancelGroup === 'all' ? 'Все группы' : grp?.name || cancelGroup;
+
+    const notif: any = {
+      id: 'notif-' + Date.now(),
+      target_group_id: cancelGroup,
+      title: '🚨 ВНИМАНИЕ: ЗАНЯТИЕ ОТМЕНЕНО!',
+      message: `Занятие (${targetTitle}, ${cancelDate}) отменено! Причина: ${cancelReason}. Студия ARVESTI гарантирует проведение отработки!`,
+      type: 'urgent',
+      created_at: new Date().toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+    };
+
+    const newsPost: NewsRow = {
+      id: 'news-' + Date.now(),
+      title: `🚨 Отмена занятия (${targetTitle}, ${cancelDate})`,
+      content: `Уважаемые ученицы и родители!\n\nЗанятие (${targetTitle}, ${cancelDate}) отменено преподавателем.\nПричина: ${cancelReason}\n\nПо правилам студии ARVESTI пропущенное занятие будет обязательно отработано. Дату и время педагог Линда Азизян сообщит дополнительно.`,
+      category: 'schedule_change',
+      pinned: true,
+      author: 'Линда Азизян',
+      date: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
+    };
 
     try {
-      await supabase.from('profiles').update({ notes: noteText, attendance_status: status }).eq('id', profile.id);
+      await Promise.all([
+        supabase.from('notifications').insert([notif]),
+        supabase.from('news').insert([newsPost]),
+      ]);
+      setNotifications((prev) => [notif, ...prev]);
+      setNews((prev) => [newsPost, ...prev]);
+      setIsCancelModalOpen(false);
+      setCancelNotice('Занятие успешно отменено! Срочное Push-уведомление и новость опубликованы.');
+      setTimeout(() => setCancelNotice(''), 5000);
+    } catch (err: any) {
+      alert('Ошибка отмены: ' + err.message);
+    }
+  };
+
+  const handleMarkActualAttendance = async (studentId: string, isPresent: boolean) => {
+    const timeStr = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const markNote = isPresent ? `Была в зале (${timeStr})` : `Пропуск (${timeStr})`;
+
+    setStudents((prev) =>
+      prev.map((s) => (s.id === studentId ? { ...s, notes: markNote } : s))
+    );
+
+    try {
+      await supabase.from('profiles').update({ notes: markNote }).eq('id', studentId);
       await supabase.from('attendance').upsert({
-        id: `att-${profile.id}`,
-        student_id: profile.id,
-        student_name: profile.full_name,
-        group_id: profile.group_id || 'grp-1',
-        status: status,
-        date: dateStr,
+        id: `att-${studentId}`,
+        student_id: studentId,
+        status: isPresent ? 'going' : 'not_going',
+        actual_present: isPresent,
         confirmed_at: new Date().toISOString(),
       });
     } catch {}
-
-    const updated = { ...profile, notes: noteText, attendance_status: status };
-    setProfile(updated);
-    localStorage.setItem('arvesti_current_student', JSON.stringify(updated));
-    setAttendanceLoading(false);
   };
 
-  const handleAuth = async (e: React.FormEvent) => {
+  const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthLoading(true);
-    setAuthError('');
-    setAuthSuccess('');
+    if (!notifTitle.trim() || !notifMessage.trim()) return;
 
-    if (authMode === 'admin') {
-      const pass = authPassword.trim();
-      if (pass === 'ArvestiAdmin2026!' || pass === 'admin123456' || pass === 'admin') {
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('arvesti_admin_authorized', 'true');
-          window.location.href = '/admin';
-        }
-        return;
-      }
-      setAuthError('Неверный пароль администратора.');
-      setAuthLoading(false);
-      return;
+    let targetGroupId = 'all';
+    let targetStudentId: string | null = null;
+
+    if (notifTarget.startsWith('student:')) {
+      targetStudentId = notifTarget.replace('student:', '');
+      const st = students.find((s) => s.id === targetStudentId);
+      targetGroupId = st?.group_id || 'all';
+    } else {
+      targetGroupId = notifTarget;
     }
 
-    if (authMode === 'login') {
-      const cleanLogin = authUsername.trim().toLowerCase();
-      try {
-        const { data } = await supabase.from('profiles').select('*').eq('username', cleanLogin).maybeSingle();
-        const st = data as ProfileRow | null;
+    const newNotif: any = {
+      id: 'notif-' + Date.now(),
+      target_group_id: targetGroupId,
+      target_student_id: targetStudentId,
+      title: notifTitle.trim(),
+      message: notifMessage.trim(),
+      type: notifType,
+      created_at: new Date().toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+    };
 
-        if (!st) {
-          setAuthError('Ученица не найдена. Нажмите «Регистрация», чтобы записаться.');
-          setAuthLoading(false);
-          return;
-        }
+    setNotifications([newNotif, ...notifications]);
+    setNotifTitle('');
+    setNotifMessage('');
+    setNotifSentSuccess(targetStudentId ? 'Личное сообщение отправлено ученице!' : 'Уведомление отправлено!');
+    setTimeout(() => setNotifSentSuccess(''), 4000);
 
-        if (st.password && st.password !== authPassword) {
-          setAuthError('Неверный пароль.');
-          setAuthLoading(false);
-          return;
-        }
-
-        localStorage.setItem('arvesti_current_student', JSON.stringify(st));
-        if (typeof document !== 'undefined') {
-          document.cookie = `arvesti_student_id=${st.id}; path=/; max-age=315360000; SameSite=Lax`;
-        }
-
-        setProfile(st);
-        setIsLoggedIn(true);
-        setupGroup(st.group_id);
-        fetchStudioData(st.id);
-        setActiveTab('dashboard');
-      } catch (err: any) {
-        setAuthError('Ошибка входа: ' + err.message);
-      } finally {
-        setAuthLoading(false);
-      }
-      return;
-    }
-
-    if (authMode === 'register') {
-      const cleanLogin = authUsername.trim().toLowerCase();
-      try {
-        const newStudent = {
-          id: 'student-' + Date.now(),
-          username: cleanLogin,
-          password: authPassword,
-          full_name: regFullName.trim(),
-          phone: regPhone.trim(),
-          role: 'student',
-          group_id: regGroup,
-          account_type: regType,
-          payment_status: 'paid',
-          payment_due_date: 'до 31.10.2026',
-          status: 'pending',
-          notes: 'Новая заявка',
-        };
-
-        const { error } = await supabase.from('profiles').insert([newStudent]);
-        if (error) {
-          setAuthError('Ошибка регистрации: ' + error.message);
-          setAuthLoading(false);
-          return;
-        }
-
-        setAuthSuccess('Заявка успешно отправлена руководителю! После одобрения вы сможете войти.');
-        setAuthMode('login');
-      } catch (err: any) {
-        setAuthError(err.message || 'Ошибка');
-      } finally {
-        setAuthLoading(false);
-      }
-    }
+    try {
+      await supabase.from('notifications').insert([newNotif]);
+    } catch {}
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('arvesti_current_student');
-    if (typeof document !== 'undefined') {
-      document.cookie = 'arvesti_student_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-    }
-    setProfile(null);
-    setIsLoggedIn(false);
-    setAuthMode('login');
+  const handleSendQuickPersonal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!personalMsgStudent || !personalMsgText.trim()) return;
+
+    const newNotif: any = {
+      id: 'notif-' + Date.now(),
+      target_group_id: personalMsgStudent.group_id || 'all',
+      target_student_id: personalMsgStudent.id,
+      title: 'Личное сообщение от Линды Азизян',
+      message: personalMsgText.trim(),
+      type: 'reminder',
+      created_at: new Date().toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+    };
+
+    setNotifications([newNotif, ...notifications]);
+    setPersonalMsgStudent(null);
+    setPersonalMsgText('');
+    setCancelNotice(`Личное сообщение отправлено ученице ${personalMsgStudent.full_name}!`);
+    setTimeout(() => setCancelNotice(''), 4000);
+
+    try {
+      await supabase.from('notifications').insert([newNotif]);
+    } catch {}
   };
 
-  const handleLogoClick = () => {
-    if (isLoggedIn) {
-      setActiveTab('dashboard');
+  const handleSaveSettings = async () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('arvesti_studio_address', studioAddress);
+      localStorage.setItem('arvesti_groups_schedule', JSON.stringify(groups));
     }
+
+    try {
+      for (const section of rules) {
+        await supabase.from('studio_rules').upsert({
+          id: section.id,
+          title: section.title,
+          items: section.items,
+          sort_order: section.sort_order,
+        });
+      }
+    } catch {}
+
+    setSettingsSuccess('Настройки (адрес и расписание) успешно сохранены!');
+    setTimeout(() => setSettingsSuccess(''), 4000);
   };
 
-  if (checkingSession) {
-    return (
-      <div className="py-32 text-center space-y-3">
-        <div className="w-10 h-10 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-        <p className="text-xs text-neutral-400">Вход в студию ARVESTI...</p>
-      </div>
-    );
+  const pendingRequests = useMemo(() => students.filter((s) => s.status === 'pending'), [students]);
+  const activeStudents = useMemo(() => students.filter((s) => s.status === 'active'), [students]);
+
+  const groupStudents = useMemo(() => {
+    let list = activeStudents;
+    if (selectedGroupId !== 'all') list = list.filter((s) => s.group_id === selectedGroupId);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter((s) => s.full_name.toLowerCase().includes(q) || s.phone.includes(q) || s.username?.toLowerCase().includes(q));
+    }
+    return list;
+  }, [activeStudents, selectedGroupId, searchQuery]);
+
+  const attendanceStudents = useMemo(() => {
+    if (attendanceGroupId === 'all') return activeStudents;
+    return activeStudents.filter((s) => s.group_id === attendanceGroupId);
+  }, [activeStudents, attendanceGroupId]);
+
+  const goingStudents = useMemo(
+    () => attendanceStudents.filter((s) => s.attendance_status === 'going' || s.notes?.includes('Смогу прийти') || s.notes?.includes('Будет на занятии')),
+    [attendanceStudents]
+  );
+  const notGoingStudents = useMemo(
+    () => attendanceStudents.filter((s) => s.attendance_status === 'not_going' || s.notes?.includes('Не смогу прийти') || s.notes?.includes('Не сможет')),
+    [attendanceStudents]
+  );
+  const unconfirmedStudents = useMemo(
+    () => attendanceStudents.filter((s) => !goingStudents.includes(s) && !notGoingStudents.includes(s)),
+    [attendanceStudents, goingStudents, notGoingStudents]
+  );
+
+  const filteredAttendanceStudents = useMemo(() => {
+    if (attendanceFilter === 'going') return goingStudents;
+    if (attendanceFilter === 'not_going') return notGoingStudents;
+    if (attendanceFilter === 'unconfirmed') return unconfirmedStudents;
+    return attendanceStudents;
+  }, [attendanceFilter, goingStudents, notGoingStudents, unconfirmedStudents, attendanceStudents]);
+
+  if (loading) {
+    return <div className="py-20 text-center text-xs text-neutral-400">Загрузка панели руководителя...</div>;
   }
 
-  if (!isLoggedIn) {
+  if (!isAdminAuthorized) {
     return (
-      <div className="space-y-8 py-8 max-w-sm mx-auto animate-fadeIn">
+      <div className="max-w-md mx-auto my-16 p-8 rounded-3xl border border-neutral-800 bg-neutral-900/90 shadow-2xl space-y-6">
         <div className="text-center space-y-2">
-          <div className="w-14 h-14 mx-auto rounded-2xl bg-white text-black flex items-center justify-center font-black text-2xl shadow-lg">
-            AR
+          <div className="w-12 h-12 mx-auto rounded-2xl bg-white/10 flex items-center justify-center text-white">
+            <Lock className="w-6 h-6" />
           </div>
-          <h1 className="text-3xl font-black tracking-widest text-white uppercase">ARVESTI</h1>
-          <p className="text-xs text-neutral-400">Студия кавказских танцев в Пятигорске • ТРЦ «Арбат»</p>
+          <h2 className="text-xl font-black text-white">Панель руководителя ARVESTI</h2>
+          <p className="text-xs text-neutral-400">Введите пароль руководителя</p>
         </div>
 
-        <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/90 shadow-2xl space-y-5">
-          {authMode !== 'admin' && (
-            <div className="flex rounded-2xl bg-neutral-950 p-1 border border-neutral-800 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => { setAuthMode('login'); setAuthError(''); setAuthSuccess(''); }}
-                className={`flex-1 py-2.5 rounded-xl transition-all ${
-                  authMode === 'login' ? 'bg-white text-black font-bold shadow' : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                Вход
-              </button>
-              <button
-                type="button"
-                onClick={() => { setAuthMode('register'); setAuthError(''); setAuthSuccess(''); }}
-                className={`flex-1 py-2.5 rounded-xl transition-all ${
-                  authMode === 'register' ? 'bg-white text-black font-bold shadow' : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                Регистрация
-              </button>
-            </div>
-          )}
+        {authError && (
+          <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{authError}</span>
+          </div>
+        )}
 
-          {authError && (
-            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{authError}</span>
-            </div>
-          )}
-
-          {authSuccess && (
-            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{authSuccess}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleAuth} className="space-y-3.5 text-xs">
-            {authMode === 'register' && (
-              <div>
-                <label className="block text-neutral-300 font-semibold mb-1">ФИО Ученицы</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Алина Григорян"
-                  value={regFullName}
-                  onChange={(e) => setRegFullName(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2.5 px-3 text-white focus:outline-none focus:border-white"
-                />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-neutral-300 font-semibold mb-1">
-                {authMode === 'admin' ? 'Логин' : 'Логин ученицы'}
-              </label>
-              <input
-                type="text"
-                required
-                placeholder={authMode === 'admin' ? 'admin' : 'username'}
-                value={authUsername}
-                onChange={(e) => setAuthUsername(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2.5 px-3 text-white focus:outline-none focus:border-white"
-              />
-            </div>
-
-            {authMode === 'register' && (
-              <div>
-                <label className="block text-neutral-300 font-semibold mb-1">Номер телефона</label>
-                <input
-                  type="tel"
-                  required
-                  value={regPhone}
-                  onChange={(e) => setRegPhone(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2.5 px-3 text-white font-mono focus:outline-none focus:border-white"
-                />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-neutral-300 font-semibold mb-1">Пароль</label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2.5 px-3 text-white focus:outline-none focus:border-white"
-              />
-            </div>
-
-            {authMode === 'register' && (
-              <div>
-                <label className="block text-neutral-300 font-semibold mb-1">Группа</label>
-                <select
-                  value={regGroup}
-                  onChange={(e) => setRegGroup(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2.5 px-3 text-white focus:outline-none focus:border-white cursor-pointer"
-                >
-                  <option value="grp-1">ARVESTI 1.0 (Старшая, Чт/Сб 19:00)</option>
-                  <option value="grp-2">ARVESTI 2.0 (Старшая, Сб/Вс 17:00)</option>
-                  <option value="grp-3">ARVESTI 3.0 (Младшая, Сб/Вс 14:00)</option>
-                  <option value="grp-4">ARVESTI 4.0 (Младшая, Сб/Вс 15:30)</option>
-                </select>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={authLoading}
-              className="w-full py-3 px-4 rounded-xl bg-white hover:bg-neutral-200 text-black font-extrabold text-xs transition-all shadow-lg cursor-pointer mt-2"
-            >
-              {authLoading ? 'Обработка...' : authMode === 'register' ? 'Зарегистрироваться' : 'Войти в личный кабинет'}
-            </button>
-          </form>
-        </div>
+        <form onSubmit={handleVerifyAdmin} className="space-y-4 text-xs">
+          <div>
+            <label className="block text-neutral-300 font-semibold mb-1">Пароль</label>
+            <input
+              type="password"
+              required
+              placeholder="••••••••"
+              value={adminPasswordInput}
+              onChange={(e) => setAdminPasswordInput(e.target.value)}
+              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2.5 px-3 text-white focus:outline-none focus:border-white"
+            />
+          </div>
+          <button
+            type="submit"
+            className="w-full py-3 px-4 rounded-xl bg-white hover:bg-neutral-200 text-black font-extrabold text-xs transition-all shadow cursor-pointer"
+          >
+            Войти
+          </button>
+        </form>
 
         <div className="text-center pt-2">
-          {authMode !== 'admin' ? (
-            <button
-              type="button"
-              onClick={() => { setAuthMode('admin'); setAuthError(''); setAuthPassword(''); setAuthUsername('admin'); }}
-              className="text-neutral-500 hover:text-neutral-300 text-xs flex items-center justify-center gap-1.5 mx-auto transition-colors cursor-pointer"
-            >
-              <Lock className="w-3.5 h-3.5 text-neutral-500" />
-              <span>Вход как администратор</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => { setAuthMode('login'); setAuthError(''); setAuthPassword(''); setAuthUsername(''); }}
-              className="text-neutral-400 hover:text-white text-xs transition-colors cursor-pointer"
-            >
-              ← Вернуться ко входу для учениц
-            </button>
-          )}
+          <Link href="/" className="text-xs text-neutral-500 hover:text-white transition-colors">
+            ← На главную
+          </Link>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 pb-24 max-w-md mx-auto animate-fadeIn">
-      {activeToast && (
-        <div className="fixed top-4 left-4 right-4 z-50 max-w-md mx-auto p-4 rounded-2xl bg-white text-black shadow-2xl border border-neutral-200 animate-in fade-in slide-in-from-top duration-300">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-2.5">
-              <div className="p-2 rounded-xl bg-black text-white shrink-0">
-                <Bell className="w-4 h-4 animate-bounce" />
-              </div>
+    <div className="space-y-6 pb-24 max-w-lg mx-auto">
+      {/* Шапка админки */}
+      <div className="flex items-center justify-between border-b border-neutral-800 pb-3 pt-1">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-white text-black flex items-center justify-center font-black text-sm shadow">
+            AR
+          </div>
+          <div>
+            <h1 className="text-sm font-black text-white leading-tight">Кабинет руководителя ARVESTI</h1>
+            <p className="text-[10px] text-neutral-400">Линда Азизян • Управление студией</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Link
+            href="/"
+            className="py-1 px-2.5 rounded-lg border border-neutral-700 bg-neutral-900 text-neutral-300 text-[11px] font-semibold"
+          >
+            В вид учениц
+          </Link>
+          <button
+            onClick={() => {
+              localStorage.removeItem('arvesti_admin_authorized');
+              setIsAdminAuthorized(false);
+            }}
+            className="p-1.5 rounded-lg bg-red-600/10 border border-red-500/30 text-red-400 text-xs"
+            title="Выйти"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {cancelNotice && (
+        <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{cancelNotice}</span>
+        </div>
+      )}
+
+      {/* 1. ПОСЕЩАЕМОСТЬ */}
+      {activeSection === 'attendance' && (
+        <div className="space-y-4">
+          <div className="p-5 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-800">
               <div>
-                <p className="font-black text-[10px] uppercase tracking-wider text-neutral-500">Студия ARVESTI</p>
-                <h4 className="font-bold text-sm leading-tight text-black mt-0.5">{activeToast.title}</h4>
-                <p className="text-xs text-neutral-700 mt-1">{activeToast.message}</p>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <CalendarCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Журнал посещаемости</span>
+                </h2>
+                <p className="text-[11px] text-neutral-400">
+                  Ответы учениц («Смогу прийти» / «Не смогу прийти»)
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={attendanceGroupId}
+                  onChange={(e) => setAttendanceGroupId(e.target.value)}
+                  className="bg-neutral-950 border border-neutral-800 rounded-xl py-1 px-2.5 text-xs text-white cursor-pointer"
+                >
+                  <option value="all">Все группы</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCancelGroup(attendanceGroupId);
+                    setIsCancelModalOpen(true);
+                  }}
+                  className="py-1 px-2.5 rounded-xl bg-red-600/20 hover:bg-red-600/30 border border-red-500/40 text-red-400 text-xs font-bold flex items-center gap-1 cursor-pointer shadow"
+                >
+                  <AlertOctagon className="w-3.5 h-3.5" />
+                  <span>Отменить урок</span>
+                </button>
               </div>
             </div>
-            <button onClick={() => setActiveToast(null)} className="p-1 text-neutral-400 hover:text-black">
-              <X className="w-4 h-4" />
-            </button>
+
+            {/* 3 Счётчика ответов */}
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <button
+                type="button"
+                onClick={() => setAttendanceFilter('going')}
+                className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                  attendanceFilter === 'going'
+                    ? 'bg-emerald-500/25 border-emerald-400 shadow'
+                    : 'bg-emerald-500/10 border-emerald-500/30'
+                }`}
+              >
+                <p className="text-2xl font-black text-emerald-400">{goingStudents.length}</p>
+                <p className="text-[11px] font-bold text-emerald-300 mt-0.5">Смогут прийти</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAttendanceFilter('not_going')}
+                className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                  attendanceFilter === 'not_going'
+                    ? 'bg-red-500/25 border-red-400 shadow'
+                    : 'bg-red-500/10 border-red-500/30'
+                }`}
+              >
+                <p className="text-2xl font-black text-red-400">{notGoingStudents.length}</p>
+                <p className="text-[11px] font-bold text-red-300 mt-0.5">Не смогут прийти</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAttendanceFilter('unconfirmed')}
+                className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                  attendanceFilter === 'unconfirmed'
+                    ? 'bg-neutral-800 border-neutral-600 shadow'
+                    : 'bg-neutral-950 border-neutral-800'
+                }`}
+              >
+                <p className="text-2xl font-black text-neutral-400">{unconfirmedStudents.length}</p>
+                <p className="text-[11px] font-bold text-neutral-400 mt-0.5">Не ответили</p>
+              </button>
+            </div>
+
+            {/* Фильтры */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
+              <button
+                onClick={() => setAttendanceFilter('all')}
+                className={`py-1 px-2.5 rounded-xl font-bold cursor-pointer border ${
+                  attendanceFilter === 'all' ? 'bg-white text-black border-white' : 'bg-neutral-950 border-neutral-800 text-neutral-400'
+                }`}
+              >
+                Все ({attendanceStudents.length})
+              </button>
+              <button
+                onClick={() => setAttendanceFilter('going')}
+                className={`py-1 px-2.5 rounded-xl font-bold cursor-pointer border ${
+                  attendanceFilter === 'going' ? 'bg-emerald-500 text-black border-emerald-500' : 'bg-neutral-950 border-emerald-500/30 text-emerald-400'
+                }`}
+              >
+                Смогут ({goingStudents.length})
+              </button>
+              <button
+                onClick={() => setAttendanceFilter('not_going')}
+                className={`py-1 px-2.5 rounded-xl font-bold cursor-pointer border ${
+                  attendanceFilter === 'not_going' ? 'bg-red-500 text-white border-red-500' : 'bg-neutral-950 border-red-500/30 text-red-400'
+                }`}
+              >
+                Не смогут ({notGoingStudents.length})
+              </button>
+              <button
+                onClick={() => setAttendanceFilter('unconfirmed')}
+                className={`py-1 px-2.5 rounded-xl font-bold cursor-pointer border ${
+                  attendanceFilter === 'unconfirmed' ? 'bg-neutral-700 text-white border-neutral-600' : 'bg-neutral-950 border-neutral-800 text-neutral-400'
+                }`}
+              >
+                Без ответа ({unconfirmedStudents.length})
+              </button>
+            </div>
+
+            {/* Список учениц */}
+            <div className="divide-y divide-neutral-800 pt-2">
+              {filteredAttendanceStudents.map((st) => {
+                const isGoing = st.attendance_status === 'going' || st.notes?.includes('Смогу прийти') || st.notes?.includes('Будет на занятии');
+                const isNotGoing = st.attendance_status === 'not_going' || st.notes?.includes('Не смогу прийти') || st.notes?.includes('Не сможет');
+                const wasInHall = st.notes?.includes('Была в зале');
+
+                return (
+                  <div key={st.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                        isGoing ? 'bg-emerald-500 text-black' : isNotGoing ? 'bg-red-600 text-white' : 'bg-neutral-800 text-neutral-400'
+                      }`}>
+                        {st.full_name.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-white text-sm">{st.full_name}</span>
+                          <span className="text-[10px] text-neutral-400 font-mono">{st.phone}</span>
+                        </div>
+                        {st.notes && <p className="text-[10px] text-neutral-400 mt-0.5">{st.notes}</p>}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      {isGoing ? (
+                        <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black">
+                          Смогу прийти
+                        </span>
+                      ) : isNotGoing ? (
+                        <span className="px-2.5 py-1 rounded-xl bg-red-500/20 text-red-400 border border-red-500/30 text-[10px] font-black">
+                          Не смогу прийти
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 rounded-xl bg-neutral-800 text-neutral-400 text-[10px]">
+                          Ещё не ответила
+                        </span>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => { setPersonalMsgStudent(st); setPersonalMsgText(''); }}
+                        title="Написать личное сообщение ученице"
+                        className="p-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <MessageCircle className="w-3 h-3" />
+                        <span>Написать</span>
+                      </button>
+
+                      <div className="flex items-center gap-1 pl-1 border-l border-neutral-800">
+                        <button
+                          type="button"
+                          onClick={() => handleMarkActualAttendance(st.id, true)}
+                          title="Была в зале"
+                          className={`py-1 px-2 rounded-lg font-bold text-[10px] flex items-center gap-1 cursor-pointer border ${
+                            wasInHall ? 'bg-emerald-500 text-black border-emerald-400' : 'bg-neutral-950 border-neutral-800 text-neutral-400'
+                          }`}
+                        >
+                          <Check className="w-3 h-3" />
+                          <span>В зале</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMarkActualAttendance(st.id, false)}
+                          title="Пропуск"
+                          className={`py-1 px-2 rounded-lg font-bold text-[10px] flex items-center gap-1 cursor-pointer border ${
+                            st.notes?.includes('Пропуск') ? 'bg-red-600 text-white border-red-500' : 'bg-neutral-950 border-neutral-800 text-neutral-400'
+                          }`}
+                        >
+                          <X className="w-3 h-3" />
+                          <span>Пропуск</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Шапка: логотип не сбрасывает сессию */}
-      <div className="flex items-center justify-between border-b border-neutral-800 pb-3 pt-1">
-        <button
-          type="button"
-          onClick={handleLogoClick}
-          className="flex items-center gap-2.5 cursor-pointer text-left focus:outline-none"
-        >
-          <div className="w-9 h-9 rounded-2xl bg-white text-black flex items-center justify-center font-black text-base shadow">
-            AR
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-black text-white tracking-wider text-sm">ARVESTI</span>
-              <span className="text-[9px] px-1.5 py-0.2 rounded bg-neutral-900 border border-neutral-700 font-bold uppercase text-neutral-300">
-                Studio
-              </span>
-            </div>
-            <p className="text-[10px] text-neutral-400">Кавказские танцы • Пятигорск</p>
-          </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setShowNotifications(!showNotifications)}
-          className="relative p-2 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-white transition-colors cursor-pointer"
-        >
-          <Bell className="w-4 h-4" />
-          {notifications.length > 0 && (
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />
-          )}
-        </button>
-      </div>
-
-      {pushSupported && pushPermission !== 'granted' && (
-        <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2.5">
-            <Bell className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
+      {/* 2. УЧЕНИЦЫ (РЕДАКТИРОВАНИЕ ИМЕНИ И ГРУППЫ) */}
+      {activeSection === 'students' && (
+        <div className="p-5 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-800">
             <div>
-              <p className="font-bold text-amber-300">Включите Push-уведомления</p>
-              <p className="text-[11px] text-neutral-400">Оповещения об отменах занятий</p>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                <span>Список учениц ({groupStudents.length})</span>
+              </h2>
+              <p className="text-[11px] text-neutral-400">Нажмите ✏️ для смены группы или имени ученицы</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Поиск по имени..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-neutral-950 border border-neutral-800 rounded-xl py-1 px-2.5 text-xs text-white w-36"
+              />
+              <select
+                value={selectedGroupId}
+                onChange={(e) => setSelectedGroupId(e.target.value)}
+                className="bg-neutral-950 border border-neutral-800 rounded-xl py-1 px-2 text-xs text-white"
+              >
+                <option value="all">Все</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
             </div>
           </div>
+
+          <div className="divide-y divide-neutral-800">
+            {groupStudents.map((std) => {
+              const currentGroup = groups.find((g) => g.id === std.group_id);
+
+              return (
+                <div key={std.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white text-sm">{std.full_name}</span>
+                      <span className="px-2 py-0.5 rounded-md bg-neutral-800 text-neutral-300 font-bold text-[10px]">
+                        {currentGroup?.name || 'ARVESTI 1.0'}
+                      </span>
+                    </div>
+                    <p className="text-neutral-400 font-mono text-[11px]">{std.phone} • @{std.username}</p>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                    <button
+                      onClick={() => handleTogglePayment(std.id, std.payment_status)}
+                      className={`py-1 px-2.5 rounded-xl border font-bold text-[11px] cursor-pointer ${
+                        std.payment_status === 'paid'
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                          : 'bg-red-500/10 text-red-400 border-red-500/30'
+                      }`}
+                    >
+                      {std.payment_status === 'paid' ? 'Оплачен' : 'Долг'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => { setPersonalMsgStudent(std); setPersonalMsgText(''); }}
+                      className="p-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-300"
+                      title="Написать личное сообщение"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* КНОПКА РЕДАКТИРОВАНИЯ ИМЕНИ И ГРУППЫ */}
+                    <button
+                      onClick={() => setEditingStudent(std)}
+                      className="p-1.5 rounded-lg border border-neutral-700 bg-neutral-800 text-white hover:bg-neutral-700 font-bold flex items-center gap-1 cursor-pointer"
+                      title="Изменить имя, группу, телефон"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="text-[11px]">Изменить</span>
+                    </button>
+
+                    <div className="pl-3 ml-2 border-l border-neutral-800">
+                      <button
+                        onClick={() => setStudentToDelete(std)}
+                        className="p-1.5 rounded-lg border border-red-500/20 bg-red-500/5 text-red-400/80 hover:text-red-400 hover:bg-red-500/20 cursor-pointer"
+                        title="Удалить ученицу"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 3. УВЕДОМЛЕНИЯ */}
+      {activeSection === 'notifications' && (
+        <div className="p-5 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-4 text-xs">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Bell className="w-4 h-4" />
+            <span>Отправить Push-уведомление</span>
+          </h2>
+
+          {notifSentSuccess && (
+            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{notifSentSuccess}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSendNotification} className="space-y-3">
+            <div>
+              <label className="block text-neutral-400 mb-1">Кому отправить:</label>
+              <select
+                value={notifTarget}
+                onChange={(e) => setNotifTarget(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white cursor-pointer"
+              >
+                <optgroup label="Общие рассылки">
+                  <option value="all">Всем ученицам студии ARVESTI</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>Группа {g.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Персонально ученице">
+                  {activeStudents.map((st) => (
+                    <option key={st.id} value={`student:${st.id}`}>
+                      Персонально: {st.full_name} ({st.phone})
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+
+            <input
+              type="text"
+              required
+              placeholder="Заголовок сообщения"
+              value={notifTitle}
+              onChange={(e) => setNotifTitle(e.target.value)}
+              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white"
+            />
+
+            <textarea
+              required
+              rows={2}
+              placeholder="Текст уведомления..."
+              value={notifMessage}
+              onChange={(e) => setNotifMessage(e.target.value)}
+              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white"
+            />
+
+            <button
+              type="submit"
+              className="py-2.5 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>Отправить мгновенно</span>
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* 4. ЗАЯВКИ */}
+      {activeSection === 'requests' && (
+        <div className="p-5 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <UserPlus className="w-4 h-4" />
+              <span>Заявки на регистрацию ({pendingRequests.length})</span>
+            </h2>
+          </div>
+
+          {pendingRequests.length === 0 ? (
+            <p className="text-xs text-neutral-400 py-8 text-center">Новых заявок на регистрацию нет.</p>
+          ) : (
+            <div className="divide-y divide-neutral-800">
+              {pendingRequests.map((st) => (
+                <div key={st.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div>
+                    <h3 className="font-bold text-white text-sm">{st.full_name}</h3>
+                    <p className="text-neutral-400 font-mono">@{st.username} • {st.phone}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleApproveStudent(st.id)}
+                      className="py-1.5 px-3.5 rounded-xl bg-white hover:bg-neutral-200 text-black text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Принять</span>
+                    </button>
+                    <button
+                      onClick={() => setStudentToDelete(st)}
+                      className="py-1.5 px-3 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 text-xs font-bold cursor-pointer"
+                    >
+                      Отклонить
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 5. НАСТРОЙКИ СТУДИИ */}
+      {activeSection === 'settings' && (
+        <div className="space-y-5 text-xs">
+          {settingsSuccess && (
+            <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{settingsSuccess}</span>
+            </div>
+          )}
+
+          <div className="p-5 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-3">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-white" />
+              <span>Адрес студии</span>
+            </h3>
+            <input
+              type="text"
+              value={studioAddress}
+              onChange={(e) => setStudioAddress(e.target.value)}
+              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white"
+              placeholder="ТРЦ «Арбат», Октябрьская ул., 17, Пятигорск"
+            />
+          </div>
+
+          <div className="p-5 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-3">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <Clock className="w-4 h-4 text-white" />
+              <span>Расписание танцевальных групп</span>
+            </h3>
+            <div className="space-y-3">
+              {groups.map((grp, idx) => (
+                <div key={grp.id} className="p-3 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white">{grp.name}</span>
+                    <span className="text-[10px] text-neutral-400">{grp.age_category}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-neutral-500 mb-0.5">Дни</label>
+                      <input
+                        type="text"
+                        value={grp.schedule}
+                        onChange={(e) => {
+                          const updated = [...groups];
+                          updated[idx].schedule = e.target.value;
+                          setGroups(updated);
+                        }}
+                        className="w-full bg-neutral-900 border border-neutral-700 rounded-lg py-1 px-2 text-white text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-neutral-500 mb-0.5">Время</label>
+                      <input
+                        type="text"
+                        value={grp.time}
+                        onChange={(e) => {
+                          const updated = [...groups];
+                          updated[idx].time = e.target.value;
+                          setGroups(updated);
+                        }}
+                        className="w-full bg-neutral-900 border border-neutral-700 rounded-lg py-1 px-2 text-white text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <button
-            onClick={handleRequestPush}
-            className="py-1.5 px-3.5 rounded-xl bg-white hover:bg-neutral-200 text-black font-extrabold text-xs transition-colors shrink-0 shadow cursor-pointer"
+            type="button"
+            onClick={handleSaveSettings}
+            className="w-full py-3 rounded-2xl bg-white hover:bg-neutral-200 text-black font-extrabold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg"
           >
-            Включить
+            <Save className="w-4 h-4" />
+            <span>Сохранить адрес и расписание</span>
           </button>
         </div>
       )}
 
-      {/* 1. ГЛАВНАЯ */}
-      {activeTab === 'dashboard' && (() => {
-        const activeCancellation = notifications.find(
-          (n) => (n.type === 'urgent' || n.title.toLowerCase().includes('отмен')) &&
-                 (n.target_group_id === 'all' || n.target_group_id === profile?.group_id)
-        ) || news.find(
-          (nw) => nw.title.toLowerCase().includes('отмен') || nw.content.toLowerCase().includes('отмен')
-        );
+      {/* НИЖНЯЯ ПАНЕЛЬ РАЗДЕЛОВ ДЛЯ АДМИНИСТРАТОРА */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-md border-t border-neutral-800 safe-bottom">
+        <div className="max-w-lg mx-auto flex items-center justify-around h-16 px-1">
+          <button
+            type="button"
+            onClick={() => setActiveSection('attendance')}
+            className={`flex flex-col items-center justify-center w-full h-full py-1 cursor-pointer ${
+              activeSection === 'attendance' ? 'text-white font-bold' : 'text-neutral-500 hover:text-neutral-300'
+            }`}
+          >
+            <CalendarCheck className={`w-5 h-5 ${activeSection === 'attendance' ? 'scale-110 text-white' : ''}`} />
+            <span className="text-[10px] mt-1">Журнал</span>
+          </button>
 
-        return (
-          <div className="space-y-4">
-            {/* Предупреждение об отмене */}
-            {activeCancellation && (
-              <div className="p-4 rounded-3xl bg-red-500/15 border-2 border-red-500 text-red-200 shadow-2xl space-y-2 animate-in fade-in slide-in-from-top duration-300">
-                <div className="flex items-center gap-2.5">
-                  <AlertOctagon className="w-5 h-5 text-red-400 shrink-0 animate-bounce" />
-                  <h3 className="font-black text-sm text-red-400 uppercase tracking-wide">
-                    Внимание: Занятие отменено!
-                  </h3>
-                </div>
-                <p className="text-xs text-white leading-relaxed font-semibold">
-                  {'message' in activeCancellation ? activeCancellation.message : activeCancellation.content}
-                </p>
-                <div className="p-2.5 rounded-xl bg-black/40 border border-red-500/30 text-[11px] text-red-200">
-                  ✨ По правилам студии ARVESTI будет обязательно проведена отработка! Дату педагог Линда Азизян сообщит дополнительно.
-                </div>
-              </div>
+          <button
+            type="button"
+            onClick={() => setActiveSection('students')}
+            className={`flex flex-col items-center justify-center w-full h-full py-1 cursor-pointer ${
+              activeSection === 'students' ? 'text-white font-bold' : 'text-neutral-500 hover:text-neutral-300'
+            }`}
+          >
+            <Users className={`w-5 h-5 ${activeSection === 'students' ? 'scale-110 text-white' : ''}`} />
+            <span className="text-[10px] mt-1">Ученицы</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSection('notifications')}
+            className={`flex flex-col items-center justify-center w-full h-full py-1 cursor-pointer ${
+              activeSection === 'notifications' ? 'text-white font-bold' : 'text-neutral-500 hover:text-neutral-300'
+            }`}
+          >
+            <Bell className={`w-5 h-5 ${activeSection === 'notifications' ? 'scale-110 text-white' : ''}`} />
+            <span className="text-[10px] mt-1">Пуши</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSection('requests')}
+            className={`flex flex-col items-center justify-center w-full h-full py-1 cursor-pointer relative ${
+              activeSection === 'requests' ? 'text-white font-bold' : 'text-neutral-500 hover:text-neutral-300'
+            }`}
+          >
+            <UserPlus className={`w-5 h-5 ${activeSection === 'requests' ? 'scale-110 text-white' : ''}`} />
+            <span className="text-[10px] mt-1">Заявки</span>
+            {pendingRequests.length > 0 && (
+              <span className="absolute top-2 right-4 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
             )}
+          </button>
 
-            {/* Карточка 1: Абонемент (ВЫШЕ РАСПИСАНИЯ!) */}
-            <section className="p-5 rounded-3xl border border-neutral-800 bg-neutral-900/90 shadow-xl space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-white font-bold text-sm">
-                  <CreditCard className="w-4 h-4 text-white" />
-                  <span>Абонемент</span>
-                </div>
-                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                  profile?.payment_status === 'paid'
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-red-500/20 text-red-400 border border-red-500/30'
-                }`}>
-                  {profile?.payment_status === 'paid' ? 'Оплачен' : 'Задолженность'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between text-xs pt-1 border-t border-neutral-800">
-                <span className="text-neutral-400">Срок действия:</span>
-                <span className="font-bold text-white">{profile?.payment_due_date || 'до 31.10.2026'}</span>
-              </div>
-
-              <p className="text-[11px] text-neutral-400 leading-relaxed">
-                Оплата абонементов производится с 27 числа до конца месяца за следующий расчётный период.
-              </p>
-            </section>
-
-            {/* Карточка 2: Следующее занятие (НИЖЕ!) */}
-            <section className="p-5 rounded-3xl border border-neutral-800 bg-neutral-900/90 shadow-xl space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-bold text-white tracking-wide">
-                  Следующее занятие
-                </h2>
-                {activeCancellation ? (
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-red-600 text-white font-black uppercase">
-                    Отменено
-                  </span>
-                ) : (
-                  <span className="text-xs font-bold text-neutral-400">
-                    {group?.name || 'ARVESTI'}
-                  </span>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5 text-xs">
-                <div className="p-3 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-1">
-                  <p className="text-neutral-500 text-[10px]">Дни и время:</p>
-                  <p className="font-bold text-white text-xs flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-neutral-400" />
-                    <span>{group?.schedule} • {group?.time}</span>
-                  </p>
-                </div>
-
-                <div className="p-3 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-1">
-                  <p className="text-neutral-500 text-[10px]">Место проведения:</p>
-                  <p className="font-bold text-white text-xs flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-neutral-400" />
-                    <span>ТРЦ «Арбат», 17</span>
-                  </p>
-                </div>
-              </div>
-
-              {/* ДВЕ КНОПКИ: «Смогу прийти» И «Не смогу прийти» */}
-              {activeCancellation ? (
-                <div className="pt-2 border-t border-neutral-800 space-y-2 text-center">
-                  <div className="p-3.5 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-bold flex items-center justify-center gap-2">
-                    <AlertOctagon className="w-4 h-4 shrink-0 text-red-400" />
-                    <span>Занятие отменено педагогом. Отметка не требуется.</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="pt-2 border-t border-neutral-800 space-y-3">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-neutral-400">Вы планируете быть на занятии?</span>
-                    <div>
-                      {attendanceStatus === 'going' && (
-                        <span className="text-emerald-400 font-bold flex items-center gap-1 text-xs">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Смогу прийти
-                        </span>
-                      )}
-                      {attendanceStatus === 'not_going' && (
-                        <span className="text-red-400 font-bold flex items-center gap-1 text-xs">
-                          <XCircle className="w-3.5 h-3.5" /> Не смогу прийти
-                        </span>
-                      )}
-                      {attendanceStatus === 'unconfirmed' && (
-                        <span className="text-neutral-500 text-xs">Не выбрано</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      disabled={attendanceLoading}
-                      onClick={() => handleSetAttendance('going')}
-                      className={`py-3 px-4 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                        attendanceStatus === 'going'
-                          ? 'bg-emerald-500 text-black border-2 border-emerald-400 shadow-lg shadow-emerald-500/20'
-                          : 'bg-neutral-950 hover:bg-neutral-800 text-white border border-neutral-800'
-                      }`}
-                    >
-                      <Check className={`w-4 h-4 ${attendanceStatus === 'going' ? 'text-black stroke-[3]' : 'text-emerald-500'}`} />
-                      <span>Смогу прийти</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={attendanceLoading}
-                      onClick={() => handleSetAttendance('not_going')}
-                      className={`py-3 px-4 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                        attendanceStatus === 'not_going'
-                          ? 'bg-red-600 text-white border-2 border-red-500 shadow-lg shadow-red-600/20'
-                          : 'bg-neutral-950 hover:bg-neutral-800 text-white border border-neutral-800'
-                      }`}
-                    >
-                      <X className="w-4 h-4 text-red-500" />
-                      <span>Не смогу прийти</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </section>
-          </div>
-        );
-      })()}
-
-      {/* 2. НОВОСТИ */}
-      {activeTab === 'news' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-neutral-800">
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Newspaper className="w-4 h-4" />
-              <span>Новости студии ARVESTI</span>
-            </h2>
-          </div>
-
-          <div className="space-y-3">
-            {news.map((item) => (
-              <article key={item.id} className="p-4 rounded-3xl border border-neutral-800 bg-neutral-900/80 text-xs space-y-2">
-                <h3 className="font-bold text-white text-sm">{item.title}</h3>
-                <p className="text-neutral-300 leading-relaxed whitespace-pre-line">{item.content}</p>
-                <div className="flex items-center justify-between text-[10px] text-neutral-500 pt-1 border-t border-neutral-800/60">
-                  <span>{item.author || 'Линда Азизян'}</span>
-                  <span>{item.date}</span>
-                </div>
-              </article>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() => setActiveSection('settings')}
+            className={`flex flex-col items-center justify-center w-full h-full py-1 cursor-pointer ${
+              activeSection === 'settings' ? 'text-white font-bold' : 'text-neutral-500 hover:text-neutral-300'
+            }`}
+          >
+            <Settings className={`w-5 h-5 ${activeSection === 'settings' ? 'scale-110 text-white' : ''}`} />
+            <span className="text-[10px] mt-1">Настройки</span>
+          </button>
         </div>
-      )}
+      </nav>
 
-      {/* 3. ПРАВИЛА */}
-      {activeTab === 'rules' && (
-        <div className="space-y-4">
-          <h2 className="text-base font-bold text-white flex items-center gap-2 pb-2 border-b border-neutral-800">
-            <BookOpen className="w-4 h-4" />
-            <span>Правила студии танцев ARVESTI</span>
-          </h2>
-          <div className="space-y-3 text-xs">
-            {rules.map((section) => (
-              <div key={section.id} className="p-4 rounded-3xl border border-neutral-800 bg-neutral-900/80 space-y-2.5">
-                <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                  <Sparkles className="w-3.5 h-3.5 text-white" />
-                  <span>{section.title}</span>
-                </h3>
-                <ul className="space-y-2 text-neutral-300 pl-1">
-                  {section.items.map((it, idx) => (
-                    <li key={idx} className="flex items-start gap-2">
-                      <span className="text-neutral-500 font-mono text-[11px] mt-0.5">•</span>
-                      <span className="leading-relaxed">{it}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ УЧЕНИЦЫ (ИМЯ, ГРУППА, ТЕЛЕФОН, ОПЛАТА) */}
+      {editingStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-sm p-6 rounded-3xl border border-neutral-800 bg-neutral-900 shadow-2xl space-y-3.5 text-xs">
+            <div className="flex items-center justify-between pb-2 border-b border-neutral-800">
+              <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <Edit3 className="w-4 h-4 text-white" />
+                <span>Редактировать ученицу</span>
+              </h3>
+              <button onClick={() => setEditingStudent(null)} className="text-neutral-500 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-      {/* 4. МОЙ АККАУНТ */}
-      {activeTab === 'account' && (
-        <div className="space-y-4">
-          <h2 className="text-base font-bold text-white flex items-center gap-2 pb-2 border-b border-neutral-800">
-            <UserIcon className="w-4 h-4" />
-            <span>Мой аккаунт</span>
-          </h2>
-
-          <div className="p-5 rounded-3xl border border-neutral-800 bg-neutral-900/90 shadow-xl space-y-4 text-xs">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-white text-black flex items-center justify-center font-black text-lg shadow">
-                {profile?.full_name ? profile.full_name.charAt(0) : 'A'}
-              </div>
+            <form onSubmit={handleSaveStudentEdit} className="space-y-3">
               <div>
-                <h3 className="text-base font-black text-white">{profile?.full_name}</h3>
-                <p className="text-neutral-400 font-mono">@{profile?.username}</p>
+                <label className="block text-neutral-400 mb-1 font-semibold">ФИО Ученицы (Имя)</label>
+                <input
+                  type="text"
+                  required
+                  value={editingStudent.full_name}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, full_name: e.target.value })}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white focus:border-white focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-neutral-400 mb-1 font-semibold">Танцевальная группа</label>
+                <select
+                  value={editingStudent.group_id || 'grp-1'}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, group_id: e.target.value })}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white focus:border-white focus:outline-none cursor-pointer"
+                >
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} ({g.age_category}, {g.time})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-neutral-400 mb-1 font-semibold">Телефон</label>
+                  <input
+                    type="text"
+                    value={editingStudent.phone}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, phone: e.target.value })}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-1.5 px-3 text-white font-mono focus:border-white focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-neutral-400 mb-1 font-semibold">Логин</label>
+                  <input
+                    type="text"
+                    value={editingStudent.username || ''}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, username: e.target.value })}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-1.5 px-3 text-white focus:border-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-neutral-400 mb-1 font-semibold">Статус оплаты</label>
+                  <select
+                    value={editingStudent.payment_status || 'paid'}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, payment_status: e.target.value as any })}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-1.5 px-2 text-white focus:border-white focus:outline-none cursor-pointer"
+                  >
+                    <option value="paid">Оплачен</option>
+                    <option value="overdue">Долг</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-neutral-400 mb-1 font-semibold">Срок абонемента</label>
+                  <input
+                    type="text"
+                    value={editingStudent.payment_due_date || 'до 31.10.2026'}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, payment_due_date: e.target.value })}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-1.5 px-3 text-white focus:border-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingStudent(null)}
+                  className="py-2 px-4 rounded-xl border border-neutral-700 text-neutral-300 font-semibold cursor-pointer"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  className="py-2 px-5 rounded-xl bg-white hover:bg-neutral-200 text-black font-black cursor-pointer shadow"
+                >
+                  Сохранить
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно личного сообщения */}
+      {personalMsgStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-sm p-6 rounded-3xl border border-neutral-800 bg-neutral-900 shadow-2xl space-y-3.5 text-xs">
+            <div className="flex items-center gap-2 text-purple-400">
+              <MessageCircle className="w-5 h-5" />
+              <div>
+                <h3 className="text-sm font-bold text-white">Личное сообщение ученице</h3>
+                <p className="text-[11px] text-neutral-400">{personalMsgStudent.full_name} ({personalMsgStudent.phone})</p>
               </div>
             </div>
 
-            <div className="divide-y divide-neutral-800 pt-2 text-xs">
-              <div className="py-2.5 flex items-center justify-between">
-                <span className="text-neutral-400">Телефон:</span>
-                <span className="font-mono text-white font-bold">{profile?.phone}</span>
-              </div>
-              <div className="py-2.5 flex items-center justify-between">
-                <span className="text-neutral-400">Группа:</span>
-                <span className="font-bold text-white">{group?.name || 'ARVESTI'}</span>
-              </div>
-              <div className="py-2.5 flex items-center justify-between">
-                <span className="text-neutral-400">Расписание:</span>
-                <span className="font-bold text-white">{group?.schedule} • {group?.time}</span>
-              </div>
-              <div className="py-2.5 flex items-center justify-between">
-                <span className="text-neutral-400">Статус абонемента:</span>
-                <span className={`font-bold ${profile?.payment_status === 'paid' ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {profile?.payment_status === 'paid' ? 'Оплачен' : 'Задолженность'}
-                </span>
-              </div>
-            </div>
+            <form onSubmit={handleSendQuickPersonal} className="space-y-3">
+              <textarea
+                required
+                rows={3}
+                placeholder="Напишите личное сообщение для ученицы..."
+                value={personalMsgText}
+                onChange={(e) => setPersonalMsgText(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white focus:outline-none focus:border-purple-400"
+              />
 
-            <div className="pt-3">
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPersonalMsgStudent(null)}
+                  className="py-1.5 px-3.5 rounded-xl border border-neutral-700 text-neutral-300"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  className="py-1.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold"
+                >
+                  Отправить ученице
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно подтверждения удаления */}
+      {studentToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-sm p-6 rounded-3xl border border-neutral-800 bg-neutral-900 shadow-2xl space-y-4 text-xs">
+            <h3 className="text-sm font-bold text-white">Удалить ученицу?</h3>
+            <p className="text-neutral-400">Ученица {studentToDelete.full_name} будет удалена из списка.</p>
+            <div className="flex justify-end gap-2 pt-2">
               <button
-                type="button"
-                onClick={handleLogout}
-                className="w-full py-3 px-4 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                onClick={() => setStudentToDelete(null)}
+                className="py-2 px-4 rounded-xl border border-neutral-700 text-neutral-300"
               >
-                <LogOut className="w-4 h-4" />
-                <span>Выйти из учетной записи</span>
+                Отмена
+              </button>
+              <button
+                onClick={handleConfirmDeleteStudent}
+                className="py-2 px-4 rounded-xl bg-red-600 text-white font-bold"
+              >
+                Удалить
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* НИЖНЯЯ СТРОКА: 4 РАЗДЕЛА */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-md border-t border-neutral-800 safe-bottom">
-        <div className="max-w-md mx-auto flex items-center justify-around h-16 px-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab('dashboard')}
-            className={`flex flex-col items-center justify-center w-full h-full py-1 transition-colors cursor-pointer ${
-              activeTab === 'dashboard' ? 'text-white font-bold' : 'text-neutral-500 hover:text-neutral-300'
-            }`}
-          >
-            <Home className={`w-5 h-5 ${activeTab === 'dashboard' ? 'scale-110 text-white' : ''}`} />
-            <span className="text-[10px] mt-1">Главная</span>
-          </button>
+      {/* Модальное окно отмены занятия */}
+      {isCancelModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-fadeIn">
+          <div className="w-full max-w-md p-6 rounded-3xl border border-neutral-800 bg-neutral-900 shadow-2xl space-y-4">
+            <div className="flex items-center gap-2 text-red-500">
+              <AlertOctagon className="w-6 h-6" />
+              <div>
+                <h3 className="text-base font-bold text-white">Срочная отмена занятия</h3>
+                <p className="text-xs text-neutral-400">Мгновенный Push и новость на Главной</p>
+              </div>
+            </div>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('news')}
-            className={`flex flex-col items-center justify-center w-full h-full py-1 transition-colors cursor-pointer ${
-              activeTab === 'news' ? 'text-white font-bold' : 'text-neutral-500 hover:text-neutral-300'
-            }`}
-          >
-            <Newspaper className={`w-5 h-5 ${activeTab === 'news' ? 'scale-110 text-white' : ''}`} />
-            <span className="text-[10px] mt-1">Новости</span>
-          </button>
+            <form onSubmit={handleCancelLesson} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-neutral-300 font-semibold mb-1">Группа</label>
+                <select
+                  value={cancelGroup}
+                  onChange={(e) => setCancelGroup(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white cursor-pointer"
+                >
+                  <option value="all">Все группы студии ARVESTI</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+              </div>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('rules')}
-            className={`flex flex-col items-center justify-center w-full h-full py-1 transition-colors cursor-pointer ${
-              activeTab === 'rules' ? 'text-white font-bold' : 'text-neutral-500 hover:text-neutral-300'
-            }`}
-          >
-            <BookOpen className={`w-5 h-5 ${activeTab === 'rules' ? 'scale-110 text-white' : ''}`} />
-            <span className="text-[10px] mt-1">Правила</span>
-          </button>
+              <div>
+                <label className="block text-neutral-300 font-semibold mb-1">Дата и время</label>
+                <input
+                  type="text"
+                  required
+                  value={cancelDate}
+                  onChange={(e) => setCancelDate(e.target.value)}
+                  placeholder="Сегодня в 19:00"
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white"
+                />
+              </div>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('account')}
-            className={`flex flex-col items-center justify-center w-full h-full py-1 transition-colors cursor-pointer ${
-              activeTab === 'account' ? 'text-white font-bold' : 'text-neutral-500 hover:text-neutral-300'
-            }`}
-          >
-            <UserIcon className={`w-5 h-5 ${activeTab === 'account' ? 'scale-110 text-white' : ''}`} />
-            <span className="text-[10px] mt-1">Мой аккаунт</span>
-          </button>
+              <div>
+                <label className="block text-neutral-300 font-semibold mb-1">Причина</label>
+                <textarea
+                  required
+                  rows={2}
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 px-3 text-white"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCancelModalOpen(false)}
+                  className="py-2 px-4 rounded-xl border border-neutral-700 text-xs text-neutral-300"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  className="py-2 px-5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs shadow-lg"
+                >
+                  Отменить и отправить PUSH
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </nav>
+      )}
     </div>
   );
 }
