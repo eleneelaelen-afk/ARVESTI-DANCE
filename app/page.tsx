@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   Home,
@@ -35,6 +35,11 @@ export default function ArvestiApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'news' | 'rules' | 'account'>('dashboard');
 
   const [profile, setProfile] = useState<ProfileRow | null>(null);
+  const profileRef = useRef<ProfileRow | null>(null);
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
   const [group, setGroup] = useState<GroupRow | null>(null);
   const [studioAddress, setStudioAddress] = useState('ТРЦ «Арбат», Октябрьская ул., 17, Пятигорск');
   const [news, setNews] = useState<NewsRow[]>([]);
@@ -52,8 +57,6 @@ export default function ArvestiApp() {
   // Варианты входа: 'choose' (выбор), 'student' (ученица), 'admin' (руководитель)
   const [authRole, setAuthRole] = useState<'choose' | 'student' | 'admin'>('choose');
   const [availableStudents, setAvailableStudents] = useState<ProfileRow[]>([]);
-  const [selectedStudentId, setSelectedStudentId] = useState('');
-  const [showPwaTip, setShowPwaTip] = useState(false);
 
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authUsername, setAuthUsername] = useState('');
@@ -112,6 +115,29 @@ export default function ArvestiApp() {
       try {
         new Notification(title, { body: message, icon: '/icon-192.png' });
       } catch {}
+    }
+  };
+
+  // Мгновенная обработка входящего уведомления в реальном времени
+  const handleReceiveNotification = (notif: AppNotificationRow) => {
+    if (!notif) return;
+    const currentStudent = profileRef.current;
+    if (!currentStudent) return;
+
+    const isForMe =
+      notif.target_student_id === currentStudent.id ||
+      (!notif.target_student_id && (notif.target_group_id === 'all' || notif.target_group_id === currentStudent.group_id));
+
+    if (isForMe) {
+      setNotifications((prev) => {
+        if (prev.some((n) => n.id === notif.id)) return prev;
+        const updated = [notif, ...prev];
+        localStorage.setItem('arvesti_cached_notifications', JSON.stringify(updated));
+        return updated;
+      });
+
+      setActiveToast(notif);
+      triggerSystemPush(notif.title, notif.message);
     }
   };
 
@@ -274,7 +300,7 @@ export default function ArvestiApp() {
     }
   };
 
-  // Календарь абонемента: проверка оплаты с 27 числа (БЕЗ ЦЕНЫ)
+  // Календарь абонемента (БЕЗ ЦЕНЫ)
   const getSubscriptionCalendarInfo = () => {
     const now = new Date();
     const currentDay = now.getDate();
@@ -409,7 +435,65 @@ export default function ArvestiApp() {
 
     checkAuth();
 
-    // Быстрое автоматическое обновление каждые 3 секунды
+    // =======================================================================
+    // REALTIME: ПОДПИСКА НА SUPABASE CHANNEL ДЛЯ МОМЕНТАЛЬНОГО ПОЛУЧЕНИЯ
+    // =======================================================================
+    const channel = supabase
+      .channel('arvesti_realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications' },
+        (payload) => {
+          handleReceiveNotification(payload.new as AppNotificationRow);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
+        () => {
+          const saved = localStorage.getItem('arvesti_current_student');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (parsed?.id) fetchStudioData(parsed.id);
+            } catch {}
+          }
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'new_notification' },
+        ({ payload }) => {
+          handleReceiveNotification(payload as AppNotificationRow);
+        }
+      )
+      .subscribe();
+
+    // Межвкладочный BroadcastChannel
+    let bc: BroadcastChannel | null = null;
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        bc = new BroadcastChannel('arvesti_live_channel');
+        bc.onmessage = (event) => {
+          if (event.data?.type === 'NEW_NOTIFICATION') {
+            handleReceiveNotification(event.data.notif);
+          }
+        };
+      } catch {}
+    }
+
+    // Слушатель localStorage для мгновенной синхронизации между вкладками
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'arvesti_latest_notification' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed?.notif) handleReceiveNotification(parsed.notif);
+        } catch {}
+      }
+    };
+    window.addEventListener('storage', onStorage);
+
+    // Быстрое автоматическое обновление каждые 3 секунды как надежный запасной канал
     const interval = setInterval(() => {
       const saved = typeof window !== 'undefined' ? localStorage.getItem('arvesti_current_student') : null;
       if (saved) {
@@ -436,6 +520,9 @@ export default function ArvestiApp() {
     });
 
     return () => {
+      supabase.removeChannel(channel);
+      if (bc) bc.close();
+      window.removeEventListener('storage', onStorage);
       clearInterval(interval);
       window.removeEventListener('focus', onFocus);
     };
@@ -568,52 +655,55 @@ export default function ArvestiApp() {
       return;
     }
 
-    // 2. ВХОД УЧЕНИЦЫ
+    // 2. ВХОД УЧЕНИЦЫ ПО НОМЕРУ ТЕЛЕФОНА ИЛИ ЛОГИНУ (БЕЗ СПИСКА)
     if (authMode === 'login') {
       try {
         let st: ProfileRow | null = null;
+        const inputClean = authUsername.trim();
+        const inputDigits = inputClean.replace(/[^0-9]/g, '');
 
-        if (selectedStudentId) {
-          st = availableStudents.find((s) => s.id === selectedStudentId) || null;
+        if (!inputClean) {
+          setAuthError('Пожалуйста, введите номер телефона или логин.');
+          setAuthLoading(false);
+          return;
         }
 
-        if (!st && authUsername.trim()) {
-          const inputClean = authUsername.trim();
-          const inputDigits = inputClean.replace(/[^0-9]/g, '');
+        // Поиск по номеру телефона
+        if (inputDigits.length >= 6) {
+          st = availableStudents.find((s) => {
+            const sDigits = (s.phone || '').replace(/[^0-9]/g, '');
+            return sDigits.includes(inputDigits) || inputDigits.includes(sDigits);
+          }) || null;
+        }
 
-          if (inputDigits.length >= 6) {
-            st = availableStudents.find((s) => {
-              const sDigits = s.phone.replace(/[^0-9]/g, '');
-              return sDigits.includes(inputDigits) || inputDigits.includes(sDigits);
+        // Поиск по логину
+        if (!st) {
+          st = availableStudents.find((s) => s.username?.toLowerCase() === inputClean.toLowerCase()) || null;
+        }
+
+        // Поиск по имени
+        if (!st) {
+          st = availableStudents.find((s) => s.full_name.toLowerCase().includes(inputClean.toLowerCase())) || null;
+        }
+
+        // Поиск в базе Supabase
+        if (!st) {
+          const { data } = await supabase.from('profiles').select('*');
+          if (data) {
+            const all = data as ProfileRow[];
+            st = all.find((p) => {
+              const pDigits = (p.phone || '').replace(/[^0-9]/g, '');
+              return (
+                (inputDigits.length >= 6 && pDigits.includes(inputDigits)) ||
+                p.username?.toLowerCase() === inputClean.toLowerCase() ||
+                p.full_name.toLowerCase().includes(inputClean.toLowerCase())
+              );
             }) || null;
-          }
-
-          if (!st) {
-            st = availableStudents.find((s) => s.username?.toLowerCase() === inputClean.toLowerCase()) || null;
-          }
-
-          if (!st) {
-            st = availableStudents.find((s) => s.full_name.toLowerCase().includes(inputClean.toLowerCase())) || null;
-          }
-
-          if (!st) {
-            const { data } = await supabase.from('profiles').select('*');
-            if (data) {
-              const all = data as ProfileRow[];
-              st = all.find((p) => {
-                const pDigits = p.phone.replace(/[^0-9]/g, '');
-                return (
-                  (inputDigits.length >= 6 && pDigits.includes(inputDigits)) ||
-                  p.username?.toLowerCase() === inputClean.toLowerCase() ||
-                  p.full_name.toLowerCase().includes(inputClean.toLowerCase())
-                );
-              }) || null;
-            }
           }
         }
 
         if (!st) {
-          setAuthError('Ученица не найдена. Проверьте номер телефона или выберите себя из списка.');
+          setAuthError('Ученица не найдена. Проверьте правильность номера телефона или логина.');
           setAuthLoading(false);
           return;
         }
@@ -688,7 +778,6 @@ export default function ArvestiApp() {
     setIsLoggedIn(false);
     setAuthRole('choose');
     setAuthMode('login');
-    setSelectedStudentId('');
     setAuthUsername('');
     setAuthPassword('');
   };
@@ -826,6 +915,7 @@ export default function ArvestiApp() {
       );
     }
 
+    // ВХОД УЧЕНИЦЫ: ТОЛЬКО НОМЕР ТЕЛЕФОНА И ПАРОЛЬ (БЕЗ СПИСКА)
     return (
       <div className="space-y-6 py-6 max-w-sm mx-auto animate-fadeIn">
         <div className="text-center space-y-2">
@@ -833,7 +923,7 @@ export default function ArvestiApp() {
             AR
           </div>
           <h2 className="text-xl font-black text-white">Кабинет ученицы ARVESTI</h2>
-          <p className="text-xs text-neutral-400">Вход по телефону или выбор из списка</p>
+          <p className="text-xs text-neutral-400">Вход по номеру телефона или логину</p>
         </div>
 
         <div className="p-6 rounded-3xl border border-neutral-800 bg-neutral-900/90 shadow-2xl space-y-5">
@@ -915,46 +1005,16 @@ export default function ArvestiApp() {
               </>
             ) : (
               <>
-                {availableStudents.length > 0 && (
-                  <div>
-                    <label className="block text-neutral-300 font-semibold mb-1">
-                      Быстрый выбор из списка учениц:
-                    </label>
-                    <select
-                      value={selectedStudentId}
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        setSelectedStudentId(id);
-                        const st = availableStudents.find((s) => s.id === id);
-                        if (st) {
-                          setAuthUsername(st.phone || st.username || '');
-                        }
-                      }}
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2.5 px-3 text-white focus:outline-none focus:border-white cursor-pointer"
-                    >
-                      <option value="">-- Выберите своё имя из списка --</option>
-                      {availableStudents.map((st) => (
-                        <option key={st.id} value={st.id}>
-                          {st.full_name} ({st.phone})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
                 <div>
                   <label className="block text-neutral-300 font-semibold mb-1">
-                    Или введите номер телефона / логин
+                    Номер телефона или логин
                   </label>
                   <input
                     type="text"
-                    required={!selectedStudentId}
-                    placeholder="+7 999 123 45 67 или логин"
+                    required
+                    placeholder="+7 999 123 45 67 или ваш логин"
                     value={authUsername}
-                    onChange={(e) => {
-                      setAuthUsername(e.target.value);
-                      if (selectedStudentId) setSelectedStudentId('');
-                    }}
+                    onChange={(e) => setAuthUsername(e.target.value)}
                     className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2.5 px-3 text-white focus:outline-none focus:border-white"
                   />
                 </div>
