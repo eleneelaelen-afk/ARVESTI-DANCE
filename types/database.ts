@@ -85,6 +85,7 @@ export interface LessonPlanRow {
 export interface AppNotificationRow {
   id: string;
   target_group_id: string;
+  target_student_id?: string | null;
   title: string;
   message: string;
   type: 'reminder' | 'schedule' | 'urgent' | 'announcement';
