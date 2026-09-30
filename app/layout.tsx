@@ -1,10 +1,25 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import { Navbar } from '@/components/Navbar';
 
 export const metadata: Metadata = {
-  title: 'ARVESTI — Студия кавказских танцев в Пятигорске',
-  description: 'Личный кабинет учениц, расписание, журнал посещаемости и правила студии танцев ARVESTI под руководством Линды Азизян. ТРЦ «Арбат», Октябрьская ул., 17, Пятигорск.',
+  title: 'ARVESTI — Студия кавказских танцев',
+  description: 'Личный кабинет учениц и руководителя ARVESTI',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'ARVESTI',
+  },
+  applicationName: 'ARVESTI',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+  themeColor: '#0a0a0a',
 };
 
 export default function RootLayout({
@@ -14,14 +29,17 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ru">
+      <head>
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="ARVESTI" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="theme-color" content="#0a0a0a" />
+      </head>
       <body className="bg-neutral-950 text-neutral-100 min-h-screen flex flex-col antialiased selection:bg-white selection:text-black">
-        <Navbar />
-        <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 w-full max-w-lg mx-auto p-4 sm:p-6 pb-24">
           {children}
         </main>
-        <footer className="border-t border-neutral-900 py-6 text-center text-xs text-neutral-500">
-          <p>© {new Date().getFullYear()} ARVESTI. Студия кавказских танцев • Руководитель Линда Азизян • ТРЦ «Арбат», Октябрьская ул., 17, Пятигорск</p>
-        </footer>
       </body>
     </html>
   );
