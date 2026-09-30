@@ -46,7 +46,7 @@ export default function ArvestiApp() {
   const [attendanceStatus, setAttendanceStatus] = useState<'going' | 'not_going' | 'unconfirmed'>('unconfirmed');
   const [attendanceLoading, setAttendanceLoading] = useState(false);
 
-  // Два варианта входа на первой странице: 'choose' (выбор), 'student' (ученица), 'admin' (руководитель)
+  // Два варианта входа: 'choose' (выбор), 'student' (ученица), 'admin' (руководитель)
   const [authRole, setAuthRole] = useState<'choose' | 'student' | 'admin'>('choose');
   const [availableStudents, setAvailableStudents] = useState<ProfileRow[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState('');
@@ -126,6 +126,33 @@ export default function ArvestiApp() {
     },
   ];
 
+  // Актуальное расписание групп без лишних полей
+  const setupGroup = (grpId?: string | null) => {
+    const id = grpId || 'grp-1';
+    let schedule = 'Четверг, Суббота';
+    let time = 'Чт — 19:00, Сб — 16:30';
+
+    if (id === 'grp-2') {
+      schedule = 'Суббота и Воскресенье';
+      time = '15:00';
+    } else if (id === 'grp-3') {
+      schedule = 'Суббота и Воскресенье';
+      time = '14:00';
+    } else if (id === 'grp-4') {
+      schedule = 'Суббота и Воскресенье';
+      time = '13:00';
+    }
+
+    setGroup({
+      id: id,
+      name: id === 'grp-2' ? 'ARVESTI 2.0' : id === 'grp-3' ? 'ARVESTI 3.0' : id === 'grp-4' ? 'ARVESTI 4.0' : 'ARVESTI 1.0',
+      age_category: id === 'grp-3' || id === 'grp-4' ? 'Младшая группа' : 'Старшая группа',
+      schedule: schedule,
+      time: time,
+      days_of_week: id === 'grp-1' ? ['Четверг', 'Суббота'] : ['Суббота', 'Воскресенье'],
+    });
+  };
+
   useEffect(() => {
     async function checkAuth() {
       if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -162,7 +189,7 @@ export default function ArvestiApp() {
         fetchStudioData(st.id);
       }
 
-      // Загружаем список учениц для быстрого входа в 1 клик
+      // Загружаем список учениц для быстрого входа
       try {
         const { data: allProfiles } = await supabase
           .from('profiles')
@@ -244,64 +271,6 @@ export default function ArvestiApp() {
       } catch (err) {
         console.error(err);
       }
-    }
-  };
-
-  const setupGroup = (groupId?: string | null) => {
-    const savedGroups = typeof window !== 'undefined' ? localStorage.getItem('arvesti_groups_schedule') : null;
-    let customGroups: any[] = [];
-    if (savedGroups) {
-      try { customGroups = JSON.parse(savedGroups); } catch {}
-    }
-
-    const defaultGroups = [
-      {
-        id: 'grp-1',
-        name: 'ARVESTI 1.0',
-        age_category: 'Старшая группа',
-        schedule: 'Четверг, Суббота',
-        time: 'Чт — 19:00, Сб — 16:30',
-        studio_room: 'Большой зал',
-      },
-      {
-        id: 'grp-2',
-        name: 'ARVESTI 2.0',
-        age_category: 'Старшая группа',
-        schedule: 'Суббота и Воскресенье',
-        time: '15:00',
-        studio_room: 'Большой зал',
-      },
-      {
-        id: 'grp-3',
-        name: 'ARVESTI 3.0',
-        age_category: 'Младшая группа',
-        schedule: 'Суббота и Воскресенье',
-        time: '14:00',
-        studio_room: 'Малый зал',
-      },
-      {
-        id: 'grp-4',
-        name: 'ARVESTI 4.0',
-        age_category: 'Младшая группа',
-        schedule: 'Суббота и Воскресенье',
-        time: '13:00',
-        studio_room: 'Малый зал',
-      },
-    ];
-
-    const source = customGroups.length > 0 ? customGroups : defaultGroups;
-    const found = source.find((g) => g.id === groupId);
-    if (found) {
-      setGroup({
-        id: found.id,
-        name: found.name,
-        age_category: found.age_category,
-        schedule: found.schedule,
-        time: found.time,
-        studio_room: found.studio_room || 'Большой зал',
-      });
-    } else {
-      setGroup(defaultGroups[0]);
     }
   };
 
@@ -411,7 +380,7 @@ export default function ArvestiApp() {
           return;
         }
 
-        // Проверка пароля (если пароль задан у ученицы)
+        // Проверка пароля (если задан)
         if (st.password && authPassword && st.password !== authPassword.trim()) {
           setAuthError('Неверный пароль.');
           setAuthLoading(false);
@@ -505,7 +474,7 @@ export default function ArvestiApp() {
   // ЭКРАН ДО ВХОДА: ДВА ВАРИАНТА ВХОДА (УЧЕНИЦА ИЛИ РУКОВОДИТЕЛЬ)
   // =========================================================================
   if (!isLoggedIn) {
-    // 1. НАЧАЛЬНЫЙ ЭКРАН: ВЫБОР РОЛИ (УЧЕНИЦА / РУКОВОДИТЕЛЬ)
+    // 1. НАЧАЛЬНЫЙ ЭКРАН: ВЫБОР РОЛИ
     if (authRole === 'choose') {
       return (
         <div className="space-y-6 py-8 max-w-sm mx-auto animate-fadeIn">
@@ -946,10 +915,9 @@ export default function ArvestiApp() {
         </div>
       )}
 
-      {/* 1. ГЛАВНАЯ В ДАШБОРДЕ */}
+      {/* 1. ГЛАВНАЯ */}
       {activeTab === 'dashboard' && (
         <div className="space-y-4">
-          {/* Карточка ближайшего занятия */}
           <div className="p-5 rounded-3xl border border-neutral-800 bg-neutral-900/90 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
               <div>
