@@ -274,7 +274,7 @@ export default function ArvestiApp() {
     }
   };
 
-  // Календарь абонемента: проверка оплаты с 27 числа
+  // Календарь абонемента: проверка оплаты с 27 числа (БЕЗ ЦЕНЫ)
   const getSubscriptionCalendarInfo = () => {
     const now = new Date();
     const currentDay = now.getDate();
@@ -289,7 +289,6 @@ export default function ArvestiApp() {
       currentDay,
       nextMonthName,
       isPaymentWindow,
-      cost: '3 500 ₽',
     };
   };
 
@@ -343,7 +342,6 @@ export default function ArvestiApp() {
 
   useEffect(() => {
     async function checkAuth() {
-      // Регистрация Service Worker для PUSH на iPhone (iOS 16.4+) и Android
       if (typeof window !== 'undefined') {
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -363,7 +361,7 @@ export default function ArvestiApp() {
       const savedAddress = typeof window !== 'undefined' ? localStorage.getItem('arvesti_studio_address') : null;
       if (savedAddress) setStudioAddress(savedAddress);
 
-      // Загружаем сохраненные локально уведомления, чтобы они никогда не пропадали
+      // Загружаем сохраненные локально уведомления
       const cachedNotifs = typeof window !== 'undefined' ? localStorage.getItem('arvesti_cached_notifications') : null;
       if (cachedNotifs) {
         try { setNotifications(JSON.parse(cachedNotifs)); } catch {}
@@ -485,7 +483,6 @@ export default function ArvestiApp() {
         setNotifications(forStudent);
         localStorage.setItem('arvesti_cached_notifications', JSON.stringify(forStudent));
 
-        // Если пришло новое уведомление или личное сообщение от руководителя
         if (forStudent.length > 0) {
           const latest = forStudent[0];
           const lastSeenNotif = localStorage.getItem('arvesti_last_seen_notif');
@@ -627,7 +624,6 @@ export default function ArvestiApp() {
           return;
         }
 
-        // Сохраняем сессию навсегда
         localStorage.setItem('arvesti_current_student', JSON.stringify(st));
         if (typeof document !== 'undefined') {
           document.cookie = `arvesti_student_id=${st.id}; path=/; max-age=315360000; SameSite=Lax`;
@@ -1114,7 +1110,7 @@ export default function ArvestiApp() {
         </div>
       )}
 
-      {/* Срочное объявление от руководителя (например, об отмене урока) */}
+      {/* Срочное объявление от руководителя */}
       {notifications.length > 0 && notifications[0]?.type === 'urgent' && (
         <div className="p-4 rounded-2xl bg-red-500/15 border border-red-500/40 text-red-300 space-y-1 shadow-lg">
           <div className="flex items-center gap-2">
@@ -1190,12 +1186,12 @@ export default function ArvestiApp() {
               )}
             </div>
 
-            {/* Абонемент: расчет по календарю и оповещение с 27 числа */}
+            {/* Абонемент: статус и оповещение с 27 числа (БЕЗ ЦЕНЫ) */}
             <div className="pt-3 border-t border-neutral-800 space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
                   <CreditCard className="w-4 h-4 text-neutral-400" />
-                  <span className="text-neutral-300 font-semibold">Абонемент ({calendarInfo.cost}):</span>
+                  <span className="text-neutral-300 font-semibold">Абонемент:</span>
                 </div>
                 <span className={`font-black px-2.5 py-1 rounded-xl text-[10px] ${
                   profile?.payment_status === 'paid'
@@ -1208,7 +1204,7 @@ export default function ArvestiApp() {
 
               {calendarInfo.isPaymentWindow ? (
                 <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-[11px] text-amber-300 leading-snug">
-                  <strong>Период оплаты:</strong> с 27 числа открыта оплата абонемента на <strong>{calendarInfo.nextMonthName}</strong> ({calendarInfo.cost}). К 1-му числу место должно быть закреплено.
+                  <strong>Период оплаты:</strong> с 27 числа открыта оплата абонемента на <strong>{calendarInfo.nextMonthName}</strong>. Пожалуйста, внесите оплату к 1-му числу, чтобы закрепить место за вами.
                 </div>
               ) : (
                 <p className="text-[10px] text-neutral-400 leading-tight">
@@ -1333,11 +1329,7 @@ export default function ArvestiApp() {
                 <span className="font-bold text-white">{group?.time}</span>
               </div>
               <div className="py-2.5 flex items-center justify-between">
-                <span className="text-neutral-400">Стоимость абонемента:</span>
-                <span className="font-bold text-white">3 500 ₽ / месяц</span>
-              </div>
-              <div className="py-2.5 flex items-center justify-between">
-                <span className="text-neutral-400">Статус оплаты:</span>
+                <span className="text-neutral-400">Статус абонемента:</span>
                 <span className={`font-bold ${profile?.payment_status === 'paid' ? 'text-emerald-400' : 'text-red-400'}`}>
                   {profile?.payment_status === 'paid' ? 'Оплачен' : 'Задолженность'}
                 </span>
